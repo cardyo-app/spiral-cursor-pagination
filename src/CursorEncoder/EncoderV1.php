@@ -19,13 +19,10 @@ final class EncoderV1 implements CursorDecoderInterface, CursorEncoderInterface
 
     public function decodeCursor(string $cursor): mixed
     {
-        $decoded = base64_decode(str_pad(strtr($cursor, '-_', '+/'), strlen($cursor) % 4, '=', STR_PAD_RIGHT), true);
-        if ($decoded === false) {
-            return null;
-        }
+        $decoded = base64_decode(strtr($cursor, '-_', '+/'), true);
 
-        if (!str_starts_with($decoded, self::PREFIX)) {
-            return null;
+        if ($decoded === false || !str_starts_with($decoded, self::PREFIX)) {
+            return null; // todo: throw exception?
         }
 
         // Using explode to get the part after the prefix.

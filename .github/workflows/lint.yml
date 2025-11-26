@@ -7,6 +7,40 @@ on:
       - master
 
 jobs:
+  psalm:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+
+      - uses: ramsey/composer-install@v3
+        with:
+          dependency-versions: "highest"
+
+      - run: |
+          vendor/bin/psalm --version
+          vendor/bin/psalm \
+            --force-jit \
+            --output-format=github \
+            --taint-analysis \
+            --report=results.sarif \
+            --show-info=true
+
+      - uses: actions/upload-artifact@v5
+        if: always()
+        with:
+          path: ./results.sarif
+          name: psalm-results.sarif
+
+      - uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: ./results.sarif
+          category: psalm
+
   rector:
     runs-on: ubuntu-latest
 

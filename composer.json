@@ -24,7 +24,8 @@
   "require-dev": {
     "infection/infection": ">=0.26.16",
     "phpunit/phpunit": "^10.3",
-    "rector/rector": "^2"
+    "rector/rector": "^2",
+    "vimeo/psalm": "^6.13"
   },
   "autoload": {
     "psr-4": {
@@ -38,7 +39,8 @@
   },
   "scripts": {
     "test": "phpunit --colors=always",
-    "infection": "vendor/bin/infection"
+    "infection": "vendor/bin/infection",
+    "psalm": "vendor/bin/psalm"
   },
   "config": {
     "sort-packages": true,

@@ -30,6 +30,8 @@ jobs:
 
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - uses: shivammathur/setup-php@v2
         with:
@@ -40,16 +42,75 @@ jobs:
         with:
           dependency-versions: "${{ matrix.dependencies }}"
 
-      - run: vendor/bin/phpunit --log-junit junit.xml ${{ matrix.coverage == 'xdebug' && '--coverage-clover=clover.xml' || '' }}
+      - run: |
+          vendor/bin/phpunit \
+            --log-junit=build/coverage/junit.xml \
+            ${{ matrix.coverage == 'xdebug' && '--coverage-xml=build/coverage/coverage-xml' || '' }}
 
       - uses: codecov/codecov-action@v5
         if: ${{ matrix.coverage != null }}
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./clover.xml
+          files: ./build/coverage/coverage-xml
+
+      - uses: actions/upload-artifact@v5
+        if: ${{ matrix.coverage != null }}
+        with:
+          path: ./build/coverage
+          name: coverage
 
       - uses: codecov/test-results-action@v1
         if: ${{ !cancelled() }}
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./junit.xml
+          files: ./build/coverage/junit.xml
+
+  infection:
+    needs:
+      - phpunit
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - run: git fetch origin $GITHUB_BASE_REF
+        if: ${{ github.event_name == 'pull_request' }}
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: 8.5
+
+      - uses: ramsey/composer-install@v3
+        with:
+          dependency-versions: "highest"
+
+      - uses: actions/download-artifact@v6
+        with:
+          name: coverage
+          path: build/coverage
+
+      - if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          vendor/bin/infection \
+            --skip-initial-tests \
+            --coverage=build/coverage \
+            --git-diff-lines \
+            --git-diff-base=origin/$GITHUB_BASE_REF \
+            --log-verbosity=none \
+            --logger-github \
+            --no-interaction \
+            --no-progress \
+            --threads=max
+
+      - run: |
+          vendor/bin/infection \
+            --skip-initial-tests \
+            --coverage=build/coverage \
+            --log-verbosity=none \
+            --logger-github \
+            --no-interaction \
+            --no-progress \
+            --threads=max

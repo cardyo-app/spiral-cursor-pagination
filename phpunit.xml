@@ -7,17 +7,19 @@
          processIsolation="false"
          stopOnFailure="false"
          stopOnError="false"
-         stderr="true">
-    <coverage>
-        <report>
-            <clover outputFile="clover.xml"/>
-        </report>
-    </coverage>
+         stderr="true"
+         cacheDirectory="runtime/.phpunit.cache"
+>
     <testsuites>
-        <testsuite name="Test Suite">
-            <directory>tests</directory>
+        <testsuite name="Unit">
+            <directory>tests/Unit</directory>
         </testsuite>
     </testsuites>
+    <source>
+        <include>
+            <directory>src</directory>
+        </include>
+    </source>
     <php>
         <ini name="error_reporting" value="-1"/>
         <ini name="memory_limit" value="-1"/>

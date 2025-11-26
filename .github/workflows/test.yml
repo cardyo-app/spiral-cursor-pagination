@@ -1,0 +1,116 @@
+name: test.yml
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+
+jobs:
+  phpunit:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        php-version:
+          - '8.1'
+          - '8.2'
+          - '8.3'
+          - '8.4'
+          - '8.5'
+        dependencies:
+          - "lowest"
+          - "highest"
+
+        include:
+          - php-version: '8.5'
+            dependencies: "highest"
+            coverage: xdebug
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php-version }}
+          coverage: ${{ matrix.coverage || 'none' }}
+
+      - uses: ramsey/composer-install@v3
+        with:
+          dependency-versions: "${{ matrix.dependencies }}"
+
+      - run: |
+          vendor/bin/phpunit \
+            --log-junit=reports/junit.xml \
+            ${{ matrix.coverage == 'xdebug' && '--coverage-xml=reports/coverage-xml' || '' }}
+
+      - uses: codecov/codecov-action@v5
+        if: ${{ matrix.coverage != null }}
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./reports/coverage-xml
+
+      - uses: actions/upload-artifact@v5
+        if: ${{ matrix.coverage != null }}
+        with:
+          path: ./reports
+          name: coverage
+
+      - uses: codecov/test-results-action@v1
+        if: ${{ !cancelled() }}
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./reports/junit.xml
+
+  infection:
+    needs:
+      - phpunit
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - run: git fetch origin $GITHUB_BASE_REF
+        if: ${{ github.event_name == 'pull_request' }}
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: 8.5
+
+      - uses: ramsey/composer-install@v3
+        with:
+          dependency-versions: "highest"
+
+      - uses: actions/download-artifact@v6
+        with:
+          name: coverage
+          path: reports
+
+      - if: ${{ github.event_name == 'pull_request' }}
+        run: |
+          vendor/bin/infection \
+            --skip-initial-tests \
+            --coverage=reports \
+            --git-diff-lines \
+            --git-diff-base=origin/$GITHUB_BASE_REF \
+            --log-verbosity=none \
+            --logger-github \
+            --no-interaction \
+            --no-progress \
+            --threads=max
+
+      - run: |
+          vendor/bin/infection \
+            --skip-initial-tests \
+            --coverage=reports \
+            --log-verbosity=none \
+            --logger-github \
+            --no-interaction \
+            --no-progress \
+            --threads=max

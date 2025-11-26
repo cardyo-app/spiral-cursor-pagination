@@ -11,11 +11,18 @@ composer.phar
 .DS_Store
 Thumbs.db
 
-# Other
+# Testing & Code Quality
 .phpunit.result.cache
 .php_cs.cache
-clover.xml
+.infection.cache
+infection.log
+
+# Generated Reports
+/reports/
+
+# Cache
+/runtime/
+
+# Other
 .env
-builds
 .context
-runtime

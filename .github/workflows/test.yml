@@ -1,0 +1,55 @@
+name: test.yml
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+
+jobs:
+  phpunit:
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        php-version:
+          - '8.1'
+          - '8.2'
+          - '8.3'
+          - '8.4'
+          - '8.5'
+        dependencies:
+          - "lowest"
+          - "highest"
+
+        include:
+          - php-version: '8.5'
+            dependencies: "highest"
+            coverage: xdebug
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ matrix.php-version }}
+          coverage: ${{ matrix.coverage || 'none' }}
+
+      - uses: ramsey/composer-install@v3
+        with:
+          dependency-versions: "${{ matrix.dependencies }}"
+
+      - run: vendor/bin/phpunit --log-junit junit.xml ${{ matrix.coverage == 'xdebug' && '--coverage-clover=clover.xml' || '' }}
+
+      - uses: codecov/codecov-action@v5
+        if: ${{ matrix.coverage != null }}
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./clover.xml
+
+      - uses: codecov/test-results-action@v1
+        if: ${{ !cancelled() }}
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: ./junit.xml

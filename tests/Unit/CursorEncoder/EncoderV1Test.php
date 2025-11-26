@@ -3,8 +3,10 @@
 namespace Cardyo\Tests\SpiralCursorPagination\Unit\CursorEncoder;
 
 use Cardyo\SpiralCursorPagination\CursorEncoder\EncoderV1;
+use PHPUnit\Framework\Attributes\CoversClass;
 use PHPUnit\Framework\TestCase;
 
+#[CoversClass(EncoderV1::class)]
 class EncoderV1Test extends TestCase
 {
     public function testEncodeDecode(): void

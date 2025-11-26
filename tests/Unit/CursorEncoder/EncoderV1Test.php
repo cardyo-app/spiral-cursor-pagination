@@ -1,5 +1,7 @@
 <?php
 
+declare(strict_types=1);
+
 namespace Cardyo\Tests\SpiralCursorPagination\Unit\CursorEncoder;
 
 use Cardyo\SpiralCursorPagination\CursorEncoder\EncoderV1;
@@ -9,7 +11,7 @@ use PHPUnit\Framework\Attributes\Test;
 use PHPUnit\Framework\TestCase;
 
 #[CoversClass(EncoderV1::class)]
-class EncoderV1Test extends TestCase
+final class EncoderV1Test extends TestCase
 {
     #[Test]
     public function itShouldDecodeEncodedValue(): void
@@ -36,31 +38,30 @@ class EncoderV1Test extends TestCase
         $this->assertDoesNotMatchRegularExpression('/[+=\/]/', $encoded, 'Encoded data should be URL-safe.');
     }
 
-    public static function fuzzyDataProvider(): array
+    public static function fuzzyDataProvider(): \Iterator
     {
-        return [
-            ['simple-string'],
-            ['string with spaces'],
-            ['string_with_underscores'],
-            ['string-with-dashes'],
-            ['string/with/slashes'],
-            ['string+with+pluses'],
-            ['string=with=equals'],
-            ['特殊字符字符串'], // String with special characters
-            [str_repeat('a', 1000)], // Very long string
-            [EncoderV1::PREFIX], // String that matches the prefix
-            [sprintf('%s%s', EncoderV1::PREFIX, 'data')], // String that starts with the prefix
-            [sprintf('%s%s', 'data', EncoderV1::PREFIX)], // String that ends with the prefix
-            [''], // Empty string
-            // Base64 padding edge cases (different lengths to test % 4 modulo operation)
-            ['a'],      // Results in different base64 padding
-            ['ab'],     // Results in different base64 padding
-            ['abc'],    // Results in different base64 padding
-            ['abcd'],   // Results in different base64 padding
-            ['test'],   // 4 chars
-            ['test1'],  // 5 chars
-            ['test12'], // 6 chars
-        ];
+        yield ['simple-string'];
+        yield ['string with spaces'];
+        yield ['string_with_underscores'];
+        yield ['string-with-dashes'];
+        yield ['string/with/slashes'];
+        yield ['string+with+pluses'];
+        yield ['string=with=equals'];
+        yield ['特殊字符字符串']; // String with special characters
+        yield [str_repeat('a', 1000)]; // Very long string
+        yield [EncoderV1::PREFIX]; // String that matches the prefix
+        yield [sprintf('%s%s', EncoderV1::PREFIX, 'data')]; // String that starts with the prefix
+        yield [sprintf('%s%s', 'data', EncoderV1::PREFIX)]; // String that ends with the prefix
+        yield ['']; // Empty string
+
+        // Base64 padding edge cases (different lengths to test % 4 modulo operation)
+        yield ['a']; // Results in different base64 padding
+        yield ['ab']; // Results in different base64 padding
+        yield ['abc']; // Results in different base64 padding
+        yield ['abcd']; // Results in different base64 padding
+        yield ['test']; // 4 chars
+        yield ['test1']; // 5 chars
+        yield ['test12']; // 6 chars
     }
 
     #[Test]
@@ -89,15 +90,13 @@ class EncoderV1Test extends TestCase
         $this->assertNull($decoded, 'Malformed cursor should return null.');
     }
 
-    public static function malformedCursorProvider(): array
+    public static function malformedCursorProvider(): \Iterator
     {
-        return [
-            'invalid base64 - exclamation mark' => ['YWJj!'],  // Invalid base64 character
-            'invalid base64 - hash' => ['abc#def'],  // Invalid base64 character
-            'invalid base64 - space' => ['abc def'],  // Invalid base64 character
-            'invalid base64 - multiple invalids' => ['!!!invalid!!!'],  // Multiple invalid characters
-            'no prefix' => ['dGVzdC1kYXRh'],  // 'test-data' in base64, but no cursor:v1: prefix
-            'empty string' => [''],  // Empty cursor (though this might decode successfully)
-        ];
+        yield 'invalid base64 - exclamation mark' => ['YWJj!']; // Invalid base64 character
+        yield 'invalid base64 - hash' => ['abc#def']; // Invalid base64 character
+        yield 'invalid base64 - space' => ['abc def']; // Invalid base64 character
+        yield 'invalid base64 - multiple invalids' => ['!!!invalid!!!']; // Multiple invalid characters
+        yield 'no prefix' => ['dGVzdC1kYXRh']; // 'test-data' in base64, but no cursor:v1: prefix
+        yield 'empty string' => [''];  // Empty cursor (though this might decode successfully)
     }
 }

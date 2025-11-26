@@ -1,0 +1,42 @@
+{
+  "name": "cardyo/spiral-cursor-pagination",
+  "version": "0.1.0",
+  "type": "library",
+  "license": "MIT",
+  "description": "Cursor pagination implementation for Spiral DataGrid",
+  "homepage": "https://github.com/cardyo-app/spiral-cursor-pagination",
+  "support": {
+    "issues": "https://github.com/cardyo-app/spiral-cursor-pagination/issues",
+    "source": "https://github.com/cardyo-app/spiral-cursor-pagination"
+  },
+  "authors": [
+    {
+      "name": "Leonid Meleshin (leon0399)",
+      "email": "hello@leon0399.ru",
+      "homepage": "https://leon0399.ru",
+      "role": "Maintainer"
+    }
+  ],
+  "require": {
+    "php": ">=8.1",
+    "spiral/data-grid": "^3.0"
+  },
+  "require-dev": {
+    "phpunit/phpunit": "^12.4"
+  },
+  "autoload": {
+    "psr-4": {
+      "Cardyo\\SpiralCursorPagination\\": "src/"
+    }
+  },
+  "autoload-dev": {
+    "psr-4": {
+      "Cardyo\\Tests\\SpiralCursorPagination\\": "tests/"
+    }
+  },
+  "config": {
+    "sort-packages": true
+  },
+  "minimum-stability": "dev",
+  "prefer-stable": true
+}

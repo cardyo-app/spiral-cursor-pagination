@@ -5,6 +5,10 @@
       "src",
     ],
   },
+  "tmpDir": "runtime/infection",
+  "logs": {
+    "text": "reports/infection.log",
+  },
   "minMsi": 77,
   "minCoveredMsi": 86,
   "mutators": {

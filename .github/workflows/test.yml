@@ -44,26 +44,26 @@ jobs:
 
       - run: |
           vendor/bin/phpunit \
-            --log-junit=build/coverage/junit.xml \
-            ${{ matrix.coverage == 'xdebug' && '--coverage-xml=build/coverage/coverage-xml' || '' }}
+            --log-junit=reports/junit.xml \
+            ${{ matrix.coverage == 'xdebug' && '--coverage-xml=reports/coverage-xml' || '' }}
 
       - uses: codecov/codecov-action@v5
         if: ${{ matrix.coverage != null }}
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./build/coverage/coverage-xml
+          files: ./reports/coverage-xml
 
       - uses: actions/upload-artifact@v5
         if: ${{ matrix.coverage != null }}
         with:
-          path: ./build/coverage
+          path: ./reports
           name: coverage
 
       - uses: codecov/test-results-action@v1
         if: ${{ !cancelled() }}
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./build/coverage/junit.xml
+          files: ./reports/junit.xml
 
   infection:
     needs:
@@ -90,13 +90,13 @@ jobs:
       - uses: actions/download-artifact@v6
         with:
           name: coverage
-          path: build/coverage
+          path: reports
 
       - if: ${{ github.event_name == 'pull_request' }}
         run: |
           vendor/bin/infection \
             --skip-initial-tests \
-            --coverage=build/coverage \
+            --coverage=reports \
             --git-diff-lines \
             --git-diff-base=origin/$GITHUB_BASE_REF \
             --log-verbosity=none \
@@ -108,7 +108,7 @@ jobs:
       - run: |
           vendor/bin/infection \
             --skip-initial-tests \
-            --coverage=build/coverage \
+            --coverage=reports \
             --log-verbosity=none \
             --logger-github \
             --no-interaction \

@@ -45,18 +45,18 @@ jobs:
             --force-jit \
             --output-format=github \
             --taint-analysis \
-            --report=results.sarif \
+            --report=reports/psalm-results.sarif \
             --show-info=true
 
       - uses: actions/upload-artifact@v5
         if: always()
         with:
-          path: ./results.sarif
+          path: ./reports/psalm-results.sarif
           name: psalm-results.sarif
 
       - uses: github/codeql-action/upload-sarif@v4
         with:
-          sarif_file: ./results.sarif
+          sarif_file: ./reports/psalm-results.sarif
           category: psalm
 
   rector:

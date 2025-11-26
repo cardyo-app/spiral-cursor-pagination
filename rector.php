@@ -1,0 +1,26 @@
+<?php
+
+declare(strict_types=1);
+
+use Rector\Config\RectorConfig;
+
+return RectorConfig::configure()
+    ->withCache('./runtime/rector.cache')
+    ->withParallel()
+    ->withPaths([
+        __DIR__ . '/src',
+        __DIR__ . '/tests',
+    ])
+    ->withPreparedSets(
+        deadCode: true,
+        codeQuality: true,
+        codingStyle: true,
+        typeDeclarations: true,
+        privatization: true,
+        rectorPreset: true,
+        phpunitCodeQuality: true,
+    )
+    ->withComposerBased(
+        phpunit: true,
+    )
+    ->withPhpSets();

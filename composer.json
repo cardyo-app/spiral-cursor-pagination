@@ -23,7 +23,8 @@
   },
   "require-dev": {
     "infection/infection": ">=0.26.16",
-    "phpunit/phpunit": "^10.3"
+    "phpunit/phpunit": "^10.3",
+    "rector/rector": "^2"
   },
   "autoload": {
     "psr-4": {

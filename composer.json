@@ -25,6 +25,7 @@
     "infection/infection": ">=0.26.16",
     "phpunit/phpunit": "^10.3",
     "rector/rector": "^2",
+    "symplify/easy-coding-standard": "^13.0",
     "vimeo/psalm": "^6.13"
   },
   "autoload": {
@@ -40,7 +41,9 @@
   "scripts": {
     "test": "phpunit --colors=always",
     "infection": "vendor/bin/infection",
-    "psalm": "vendor/bin/psalm"
+    "psalm": "vendor/bin/psalm",
+    "ecs": "vendor/bin/ecs",
+    "ecs:fix": "vendor/bin/ecs --fix"
   },
   "config": {
     "sort-packages": true,

@@ -7,6 +7,24 @@ on:
       - master
 
 jobs:
+  ecs:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.5'
+          tools: cs2pr
+
+      - uses: ramsey/composer-install@v3
+        with:
+          dependency-versions: "highest"
+
+      - run: |
+          vendor/bin/ecs check --ansi --no-progress-bar --output-format=checkstyle | cs2pr
+
   psalm:
     runs-on: ubuntu-latest
 

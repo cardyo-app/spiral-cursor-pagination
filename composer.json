@@ -43,7 +43,13 @@
     "infection": "vendor/bin/infection",
     "psalm": "vendor/bin/psalm",
     "ecs": "vendor/bin/ecs",
-    "ecs:fix": "vendor/bin/ecs --fix"
+    "ecs:fix": "vendor/bin/ecs --fix",
+    "check": [
+      "@ecs",
+      "@psalm",
+      "@test",
+      "@infection"
+    ]
   },
   "config": {
     "sort-packages": true,

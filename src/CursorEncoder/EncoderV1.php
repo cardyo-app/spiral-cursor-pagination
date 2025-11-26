@@ -10,6 +10,7 @@ final class EncoderV1 implements CursorDecoderInterface, CursorEncoderInterface
 {
     public const PREFIX = 'cursor:v1:';
 
+    #[\Override]
     public function encodeCursor(mixed $cursor): string
     {
         if (!is_string($cursor)) {
@@ -19,6 +20,7 @@ final class EncoderV1 implements CursorDecoderInterface, CursorEncoderInterface
         return rtrim(strtr(base64_encode(sprintf('%s%s', self::PREFIX, $cursor)), '+/', '-_'), '=');
     }
 
+    #[\Override]
     public function decodeCursor(string $cursor): mixed
     {
         $decoded = base64_decode(strtr($cursor, '-_', '+/'), true);

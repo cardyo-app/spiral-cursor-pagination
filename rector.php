@@ -23,4 +23,8 @@ return RectorConfig::configure()
     ->withComposerBased(
         phpunit: true,
     )
-    ->withPhpSets();
+    ->withPhpSets()
+    ->withImportNames(
+        importShortClasses: false,
+        removeUnusedImports: true,
+    );

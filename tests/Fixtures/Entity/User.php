@@ -8,7 +8,16 @@ use DateTimeImmutable;
 
 class User
 {
-    public function __construct(private ?int $id = null, private string $name = '', private string $email = '', private ?DateTimeImmutable $createdAt = new DateTimeImmutable(), private ?DateTimeImmutable $updatedAt = null, private ?DateTimeImmutable $activatedAt = null, private ?DateTimeImmutable $lastActivityAt = null, private int $loginCount = 0) {}
+    public function __construct(
+        private ?int $id = null,
+        private string $name = '',
+        private string $email = '',
+        private ?DateTimeImmutable $createdAt = new DateTimeImmutable(),
+        private ?DateTimeImmutable $updatedAt = null,
+        private ?DateTimeImmutable $activatedAt = null,
+        private ?DateTimeImmutable $lastActivityAt = null,
+        private int $loginCount = 0,
+    ) {}
 
     public function getId(): ?int
     {

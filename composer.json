@@ -22,11 +22,17 @@
     "spiral/data-grid": "^3.0"
   },
   "require-dev": {
+    "cycle/database": "^2.0",
+    "cycle/orm": "^2.0",
     "infection/infection": ">=0.26.16",
     "phpunit/phpunit": "^10.3",
     "rector/rector": "^2",
     "symplify/easy-coding-standard": "^13.0",
     "vimeo/psalm": "^6.13"
+  },
+  "suggest": {
+    "cycle/orm": "Required for Cycle ORM writer support (^2.0)",
+    "cycle/database": "Required for Cycle ORM integration (^2.0)"
   },
   "autoload": {
     "psr-4": {

@@ -13,12 +13,12 @@ class Customer
 {
     public function __construct(
         private ?int $id = null,
-        private readonly string $uuid = '',
-        private readonly string $name = '',
-        private readonly string $email = '',
-        private readonly ?\DateTimeImmutable $createdAt = null,
-        private readonly ?\DateTimeImmutable $updatedAt = null,
-        private readonly ?\DateTimeImmutable $lastActivityAt = null,
+        private string $uuid = '',
+        private string $name = '',
+        private string $email = '',
+        private ?\DateTimeImmutable $createdAt = null,
+        private ?\DateTimeImmutable $updatedAt = null,
+        private ?\DateTimeImmutable $lastActivityAt = null,
     ) {}
 
     public function getId(): ?int

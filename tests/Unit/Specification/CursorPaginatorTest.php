@@ -4,9 +4,11 @@ declare(strict_types=1);
 
 namespace Specification;
 
+use Cardyo\SpiralCursorPagination\Specification\Cursor\CursorLimit;
+use Cardyo\SpiralCursorPagination\Specification\Cursor\SortDirection;
+use Iterator;
 use Spiral\DataGrid\Specification\Value\IntValue;
 use Spiral\DataGrid\Specification\Value\RangeValue\Boundary;
-use Spiral\DataGrid\SpecificationInterface;
 use Cardyo\SpiralCursorPagination\Specification\CursorPaginator;
 use Cardyo\Tests\SpiralCursorPagination\Fixtures\DummyCursorCoder;
 use PHPUnit\Framework\Attributes\CoversClass;
@@ -28,7 +30,7 @@ final class CursorPaginatorTest extends TestCase
         $this->assertSame($expected, $paginator->withValue($value)->getValue());
     }
 
-    public static function validGetValueProvider(): \Iterator
+    public static function validGetValueProvider(): Iterator
     {
         $cursorCoder = new DummyCursorCoder();
 
@@ -198,7 +200,7 @@ final class CursorPaginatorTest extends TestCase
         $this->assertSame($paginator->getValue(), $result->getValue());
     }
 
-    public static function nonArrayValueProvider(): \Iterator
+    public static function nonArrayValueProvider(): Iterator
     {
         yield 'string value' => ['invalid'];
         yield 'integer value' => [42];
@@ -222,7 +224,11 @@ final class CursorPaginatorTest extends TestCase
             cursorCoder: $cursorCoder,
         );
 
-        $this->assertSame([], $paginator->getSpecifications());
+        // Now returns CursorLimit and SortDirection specifications
+        $specs = $paginator->getSpecifications();
+        $this->assertCount(2, $specs);
+        $this->assertInstanceOf(CursorLimit::class, $specs[0]);
+        $this->assertInstanceOf(SortDirection::class, $specs[1]);
     }
 
     #[Test]

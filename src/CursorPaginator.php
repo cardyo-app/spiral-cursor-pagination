@@ -36,13 +36,22 @@ use Spiral\DataGrid\SpecificationInterface;
  *
  * Example usage:
  * ```php
- * // Configure paginator with default limit and allowed limits
+ * // Option 1: Static sorting (sortFields in constructor)
  * $paginator = new CursorPaginator(
- *     encoder: $encoder,
+ *     decoder: $encoder,
  *     defaultLimit: 10,
  *     allowedLimits: [10, 25, 50, 100],
  *     sortFields: ['created_at' => 'desc', 'id' => 'asc'],
  *     uniqueField: 'id'
+ * );
+ *
+ * // Option 2: Dynamic sorting (use with CursorSortAdapter)
+ * $paginator = new CursorPaginator(
+ *     decoder: $encoder,
+ *     defaultLimit: 10,
+ *     allowedLimits: [10, 25, 50, 100],
+ *     sortFields: [], // Empty - sorting comes from GridSchema sorters
+ *     uniqueField: 'uuid'
  * );
  *
  * // Use in Grid Schema
@@ -95,13 +104,16 @@ final class CursorPaginator implements FilterInterface, SequenceInterface
             }
         }
 
-        // Ensure sort fields include the unique field
+        // Ensure sort fields include the unique field (if sortFields are provided)
         if (!empty($sortFields) && !isset($sortFields[$uniqueField])) {
             throw new \InvalidArgumentException(\sprintf(
                 'Sort fields must include unique field "%s" for deterministic ordering',
                 $uniqueField
             ));
         }
+
+        // If sortFields is empty, cursor pagination relies on external sorters
+        // (e.g., via CursorSortAdapter) to provide sorting
     }
 
     /**

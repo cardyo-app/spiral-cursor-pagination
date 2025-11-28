@@ -178,6 +178,7 @@ $response = $formatter->format($results);
 - **`CursorLimit`**: Page size with N+1 fetching
 - **`CursorDirection`**: Pagination direction indicator
 - **`CursorSort`**: Deterministic sort order
+- **`CursorSortAdapter`**: Wraps Spiral sorters to ensure unique field is appended
 
 #### 3. Paginator
 
@@ -251,6 +252,80 @@ $paginator = new CursorPaginator(
     uniqueField: 'id'
 );
 ```
+
+### Dynamic Sorting with User-Controlled Fields
+
+Use `CursorSortAdapter` to integrate with Spiral's DataGrid sorters, allowing users to dynamically choose sort fields and directions while maintaining cursor stability:
+
+```php
+use Cardyo\Spiral\DataGrid\Specification\Cursor\CursorSortAdapter;
+use Spiral\DataGrid\Specification\Sorter\Sorter;
+
+// Create paginator WITHOUT static sortFields
+$paginator = new CursorPaginator(
+    decoder: $encoder,
+    defaultLimit: 25,
+    sortFields: [], // Empty - sorting comes from user-controlled sorters
+    uniqueField: 'uuid' // Works with non-incremental IDs!
+);
+
+// Create user-controlled sorter
+$lastActiveSorter = new Sorter('last_active_at');
+
+// Wrap with CursorSortAdapter to ensure UUID is always appended
+$cursorAwareSorter = new CursorSortAdapter(
+    sorter: $lastActiveSorter,
+    uniqueField: 'uuid',
+    uniqueDirection: 'asc'
+);
+
+// Add to Grid Schema
+$schema->setPaginator($paginator);
+$schema->addSorter('last_active', $cursorAwareSorter);
+```
+
+**Query Examples:**
+
+```
+// Recently active users (DESC)
+GET /api/customers?page[size]=25&sort=-last_active
+→ ORDER BY last_active_at DESC, uuid ASC
+
+// Least active users (ASC)
+GET /api/customers?page[size]=25&sort=last_active
+→ ORDER BY last_active_at ASC, uuid ASC
+```
+
+**Multiple Dynamic Sorters:**
+
+```php
+// Add multiple sorters - users can choose
+$schema->addSorter('last_active', new CursorSortAdapter(
+    new Sorter('last_active_at'), 'uuid', 'asc'
+));
+
+$schema->addSorter('created', new CursorSortAdapter(
+    new Sorter('created_at'), 'uuid', 'asc'
+));
+
+$schema->addSorter('name', new CursorSortAdapter(
+    new Sorter('name'), 'uuid', 'asc'
+));
+
+// Users can now sort by:
+// - sort=last_active / sort=-last_active
+// - sort=created / sort=-created
+// - sort=name / sort=-name
+```
+
+**Benefits:**
+- ✅ Works with **UUID** or any unique field (not just auto-increment IDs)
+- ✅ Users control sort direction via query parameters
+- ✅ Unique field automatically appended for cursor stability
+- ✅ Same endpoint supports multiple sort use cases
+- ✅ Cursors automatically adjust to user-selected sort order
+
+See `examples/dynamic-sorting-uuid.php` for a complete example.
 
 ### Cursor Encoding
 

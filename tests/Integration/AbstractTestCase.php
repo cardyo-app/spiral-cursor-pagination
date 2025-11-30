@@ -94,7 +94,9 @@ abstract class AbstractTestCase extends SpiralTestCase
         $compiler = new Compiler();
 
         $compiler->addWriter(new QueryWriter());
-        // todo: Register cursor pagination writers
+        $compiler->addWriter(new \Cardyo\SpiralCursorPagination\Writer\Cycle\KeysetFilterWriter());
+        $compiler->addWriter(new \Cardyo\SpiralCursorPagination\Writer\Cycle\CursorLimitWriter());
+        $compiler->addWriter(new \Cardyo\SpiralCursorPagination\Writer\Cycle\SortDirectionWriter());
 
         return new GridFactory($compiler);
     }

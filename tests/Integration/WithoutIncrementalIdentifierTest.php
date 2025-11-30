@@ -100,7 +100,7 @@ class WithoutIncrementalIdentifierTest extends AbstractTestCase
         yield 'uuid primary key with default limit' => [
             'customers' => self::buildUuidCustomers(),
             'paginator' => self::createDefaultPaginator(limit: 5),
-            'expectedCount' => 5,
+            'expectedCount' => 6, // CursorLimit fetches limit+1 for hasMore detection
         ];
     }
 

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Cardyo\SpiralCursorPagination\Specification\Pagination;
 
+use Cardyo\SpiralCursorPagination\Cursor\CursorDataInterface;
+use Cardyo\SpiralCursorPagination\Cursor\CursorDirection;
 use Cardyo\SpiralCursorPagination\CursorEncoder\CursorDecoderInterface;
 use Cardyo\SpiralCursorPagination\CursorEncoder\CursorEncoderInterface;
 use InvalidArgumentException;
@@ -12,7 +14,6 @@ use Spiral\DataGrid\Specification\Pagination\Limit;
 use Spiral\DataGrid\Specification\SequenceInterface;
 use Spiral\DataGrid\Specification\ValueInterface;
 use Spiral\DataGrid\SpecificationInterface;
-use function is_array;
 
 /**
  * @see https://jsonapi.org/profiles/ethanresnick/cursor-pagination/
@@ -20,12 +21,14 @@ use function is_array;
  */
 class CursorPaginator implements FilterInterface, SequenceInterface
 {
+    private CursorDirection $direction;
     private int $limit;
+    private ?CursorDataInterface $cursorData = null;
 
     public function __construct(
         private readonly int $defaultLimit,
         private readonly ValueInterface $limitValue,
-        CursorDecoderInterface&CursorEncoderInterface $cursorCoder,
+        private readonly CursorDecoderInterface&CursorEncoderInterface $cursorCoder,
     ) {
         if ($defaultLimit < 1) {
             throw new InvalidArgumentException('Default limit must be a positive integer');
@@ -35,6 +38,7 @@ class CursorPaginator implements FilterInterface, SequenceInterface
             throw new InvalidArgumentException('Default limit must be one of the allowed limits');
         }
 
+        $this->direction = CursorDirection::FORWARD;
         $this->limit = $defaultLimit;
     }
 
@@ -42,11 +46,19 @@ class CursorPaginator implements FilterInterface, SequenceInterface
     public function withValue(mixed $value): ?SpecificationInterface
     {
         $paginator = clone $this;
-        if (!is_array($value)) {
+        if (!\is_array($value)) {
             return $paginator;
         }
 
-        $this->limit = $this->determineLimit($value);
+        $paginator->validateValue($value);
+
+        $paginator->direction = $paginator->determineDirection($value);
+        $paginator->limit = $paginator->determineLimit($value);
+
+        $cursorData = $value['after'] ?? $value['before'] ?? null;
+        if ($cursorData !== null) {
+            $paginator->cursorData = $paginator->cursorCoder->decodeCursor($cursorData);
+        }
 
         return $paginator;
     }
@@ -54,9 +66,22 @@ class CursorPaginator implements FilterInterface, SequenceInterface
     #[\Override]
     public function getValue(): mixed
     {
-        return [
+        $value = [
             'size' => $this->limit,
         ];
+
+        if ($this->cursorData !== null) {
+            switch ($this->direction) {
+                case CursorDirection::FORWARD:
+                    $value['after'] = $this->cursorCoder->encodeCursor($this->cursorData);
+                    break;
+                case CursorDirection::BACKWARD:
+                    $value['before'] = $this->cursorCoder->encodeCursor($this->cursorData);
+                    break;
+            };
+        }
+
+        return $value;
     }
 
     #[\Override]
@@ -67,7 +92,7 @@ class CursorPaginator implements FilterInterface, SequenceInterface
         ];
     }
 
-    private function determineLimit(array $value): int
+    private function validateValue(array $value): void
     {
         if (
             (isset($value['size']) && isset($value['first'])) ||
@@ -77,30 +102,36 @@ class CursorPaginator implements FilterInterface, SequenceInterface
             throw new InvalidArgumentException('Cannot specify both size and first/last parameters'); // todo: custom exception
         }
 
-        if (isset($value['size'])) {
-            if (!$this->limitValue->accepts($value['size'])) {
-                throw new InvalidArgumentException('Invalid size value'); // todo: custom exception
-            }
+        if (
+            (isset($value['after']) && isset($value['before'])) ||
+            (isset($value['after']) && isset($value['last'])) ||
+            (isset($value['before']) && isset($value['first']))
+        ) {
+            throw new InvalidArgumentException('Invalid combination of cursor parameters'); // todo: custom exception
+        }
+    }
 
-            return $this->limitValue->convert($value['size']);
+    private function determineDirection(array $value): CursorDirection
+    {
+        if (isset($value['first']) || isset($value['after'])) {
+            return CursorDirection::FORWARD;
         }
 
-        if (isset($value['first'])) {
-            if (!$this->limitValue->accepts($value['first'])) {
-                throw new InvalidArgumentException('Invalid first value'); // todo: custom exception
-            }
-
-            return $this->limitValue->convert($value['first']);
+        if (isset($value['last']) || isset($value['before'])) {
+            return CursorDirection::BACKWARD;
         }
 
-        if (isset($value['last'])) {
-            if (!$this->limitValue->accepts($value['last'])) {
-                throw new InvalidArgumentException('Invalid last value'); // todo: custom exception
-            }
+        return CursorDirection::FORWARD;
+    }
 
-            return $this->limitValue->convert($value['last']);
+    private function determineLimit(array $value): int
+    {
+        $limit = $value['size'] ?? $value['first'] ?? $value['last'] ?? $this->defaultLimit;
+
+        if (!$this->limitValue->accepts($limit)) {
+            throw new InvalidArgumentException('Invalid size value'); // todo: custom exception
         }
 
-        return $this->defaultLimit;
+        return $this->limitValue->convert($limit);
     }
 }

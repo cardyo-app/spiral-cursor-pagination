@@ -15,6 +15,7 @@ use Spiral\DataGrid\GridSchema;
 use Spiral\DataGrid\Specification\Value\IntValue;
 use Spiral\DataGrid\Specification\Value\RangeValue;
 use Spiral\DataGrid\Specification\Value\RangeValue\Boundary;
+use PHPUnit\Framework\Attributes\DataProvider;
 
 class WithoutIncrementalIdentifierTest extends AbstractTestCase
 {
@@ -76,55 +77,57 @@ class WithoutIncrementalIdentifierTest extends AbstractTestCase
         $schema->save();
     }
 
-    public function testDefaultPagination(): void
+    #[DataProvider('paginationScenarioProvider')]
+    public function testDefaultPagination(array $customers, CursorPaginator $paginator, int $expectedCount): void
     {
-        $customers = [
-            new Fixtures\Entity\Customer(
-                uuid: '00000000-0000-0000-0000-000000000001',
-                name: 'Customer 1',
-                email: 'customer.1@example.com',
-                createdAt: new DateTimeImmutable('2024-01-15T10:30:00Z'),
-            ),
-            new Fixtures\Entity\Customer(
-                uuid: '00000000-0000-0000-0000-000000000002',
-                name: 'Customer 2',
-                email: 'customer.2@example.com',
-                createdAt: new DateTimeImmutable('2024-01-16T11:00:00Z'),
-            ),
-            new Fixtures\Entity\Customer(
-                uuid: '00000000-0000-0000-0000-000000000003',
-                name: 'Customer 3',
-                email: 'customer.3@example.com',
-                createdAt: new DateTimeImmutable('2024-01-17T09:15:00Z'),
-            ),
-            new Fixtures\Entity\Customer(
-                uuid: '00000000-0000-0000-0000-000000000004',
-                name: 'Customer 4',
-                email: 'customer.4@example.com',
-                createdAt: new DateTimeImmutable('2024-01-18T14:45:00Z'),
-            ),
-            new Fixtures\Entity\Customer(
-                uuid: '00000000-0000-0000-0000-000000000005',
-                name: 'Customer 5',
-                email: 'customer.5@example.com',
-                createdAt: new DateTimeImmutable('2024-01-19T08:20:00Z'),
-            ),
-            new Fixtures\Entity\Customer(
-                uuid: '00000000-0000-0000-0000-000000000006',
-                name: 'Customer 6',
-                email: 'customer.6@example.com',
-                createdAt: new DateTimeImmutable('2024-01-20T12:10:00Z'),
-            ),
-        ];
+        $this->seedCustomers($customers);
 
-        foreach ($customers as $customer) {
-            $this->persist($customer);
+        $select = new Select($this->getContainer()->get(ORM::class), Fixtures\Entity\Customer::class);
+
+        $gridSchema = new GridSchema();
+        $gridSchema->setPaginator($paginator);
+
+        $grid = self::createGridFactory()
+            ->create($select, $gridSchema);
+
+        $results = iterator_to_array($grid->getIterator());
+
+        $this->assertCount($expectedCount, $results);
+    }
+
+    public static function paginationScenarioProvider(): iterable
+    {
+        yield 'uuid primary key with default limit' => [
+            'customers' => self::buildUuidCustomers(),
+            'paginator' => self::createDefaultPaginator(limit: 5),
+            'expectedCount' => 5,
+        ];
+    }
+
+    /**
+     * Creates predictable UUID customers so future test cases (incremental IDs, UUIDv7, etc.)
+     * can reuse the same seeding logic with different factories.
+     */
+    private static function buildUuidCustomers(int $count = 6): array
+    {
+        $customers = [];
+
+        for ($index = 1; $index <= $count; ++$index) {
+            $customers[] = new Fixtures\Entity\Customer(
+                uuid: sprintf('00000000-0000-0000-0000-%012d', $index),
+                name: sprintf('Customer %d', $index),
+                email: sprintf('customer.%d@example.com', $index),
+                createdAt: new \DateTimeImmutable(sprintf('2024-01-15T10:30:00Z +%d days', $index - 1)),
+            );
         }
 
-        $this->flush();
+        return $customers;
+    }
 
-        $paginator = new CursorPaginator(
-            defaultLimit: 5,
+    private static function createDefaultPaginator(int $limit): CursorPaginator
+    {
+        return new CursorPaginator(
+            defaultLimit: $limit,
             limitValue: new RangeValue(
                 new IntValue(),
                 Boundary::including(1),
@@ -132,17 +135,15 @@ class WithoutIncrementalIdentifierTest extends AbstractTestCase
             ),
             cursorCoder: new CursorCoder(),
         );
+    }
 
-        $select = new Select($this->getContainer()->get(ORM::class), Fixtures\Entity\Customer::class);
+    private function seedCustomers(array $customers): void
+    {
+        foreach ($customers as $customer) {
+            $this->persist($customer);
+        }
 
-        $gridSchema = new GridSchema();
-        $gridSchema->setPaginator($paginator);
-
-        $grid = self::createGridFactory()->create($select, $gridSchema);
-
-        $results = iterator_to_array($grid->getIterator());
-
-        $this->assertCount(5, $results);
+        $this->flush();
     }
 
     public function getEntityManager(): EntityManagerInterface

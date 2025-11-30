@@ -22,9 +22,14 @@
     "spiral/data-grid": "^3.0"
   },
   "require-dev": {
+    "cycle/database": "^2.15",
+    "cycle/orm": "^2.11",
     "infection/infection": ">=0.26.16",
     "phpunit/phpunit": "^10.3",
     "rector/rector": "^2",
+    "spiral/cycle-bridge": "^2.12",
+    "spiral/data-grid-bridge": "^3.0",
+    "spiral/testing": "^2.9",
     "symplify/easy-coding-standard": "^13.0",
     "vimeo/psalm": "^6.13"
   },

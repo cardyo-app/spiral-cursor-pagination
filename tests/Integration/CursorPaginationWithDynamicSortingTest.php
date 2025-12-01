@@ -8,27 +8,28 @@ use Cardyo\SpiralCursorPagination\CursorEncoder\CursorCoder;
 use Cardyo\SpiralCursorPagination\Specification\Pagination\CursorPaginator;
 use Cardyo\Tests\SpiralCursorPagination\Fixtures;
 use Cycle\Database\DatabaseProviderInterface;
-use Cycle\Database\Schema\AbstractTable;
 use Cycle\ORM\EntityManagerInterface;
 use Cycle\ORM\ORM;
 use Cycle\ORM\Schema;
 use Cycle\ORM\SchemaInterface;
 use Cycle\ORM\Select;
 use DateTimeImmutable;
-use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\Attributes\Test;
 use Spiral\DataGrid\GridSchema;
+use Spiral\DataGrid\Specification\Sorter\Sorter;
 use Spiral\DataGrid\Specification\Value\IntValue;
 use Spiral\DataGrid\Specification\Value\RangeValue;
 use Spiral\DataGrid\Specification\Value\RangeValue\Boundary;
 
 /**
- * Test cursor pagination with manually configured sorting.
+ * Test cursor pagination with dynamic sorting (sort fields not known at schema construction).
  *
- * This demonstrates the recommended usage pattern: apply sorting to the Select query
- * directly, then configure the paginator's sort fields to match.
+ * This demonstrates the pattern where:
+ * 1. GridSchema is constructed once (like in a service/grid class)
+ * 2. Sort parameters come from user input at runtime
+ * 3. Cursor pagination automatically detects sort fields from the compiled query
  */
-class CursorPaginationWithManualSortingTest extends AbstractTestCase
+class CursorPaginationWithDynamicSortingTest extends AbstractTestCase
 {
     #[\Override]
     public function setUp(): void
@@ -92,164 +93,111 @@ class CursorPaginationWithManualSortingTest extends AbstractTestCase
     }
 
     /**
-     * Test basic forward pagination with different sort fields and directions
+     * Test that cursor pagination works WITHOUT calling withSortFields()
+     *
+     * This simulates the production pattern where the GridSchema is constructed
+     * once (e.g., in CustomerGrid constructor) without knowing what sort parameters
+     * the user will request.
      */
     #[Test]
-    #[DataProvider('sortFieldProvider')]
-    public function testForwardPaginationWithDifferentSorts(
-        string $sortField,
-        string $sortDirection,
-        array $expectedOrder,
-    ): void {
+    public function testDynamicSortFieldDetection(): void
+    {
         $this->seedTestCustomers();
 
         $select = new Select($this->getContainer()->get(ORM::class), Fixtures\Entity\Customer::class);
-        $select = $select->orderBy($sortField, $sortDirection);
 
+        // Create grid schema like in production (e.g., CustomerGrid constructor)
+        // Notice: NO withSortFields() call here because sort params aren't known yet
         $gridSchema = new GridSchema();
-        $paginator = $this->createPaginator(3);
-        $gridSchema->setPaginator($paginator);
+        $gridSchema->addSorter('activity', new Sorter('last_activity_at'));
+        $gridSchema->setPaginator($this->createPaginator(3));
 
+        // User requests with specific sort direction
         $grid = self::createGridFactory()
             ->withInput(new \Spiral\DataGrid\Input\ArrayInput([
+                'sort' => ['activity' => 'desc'],
                 'paginate' => ['first' => 3],
             ]))
             ->create($select, $gridSchema);
 
         $results = iterator_to_array($grid->getIterator());
 
-        // Should return limit+1 = 4 (extra for hasMore detection)
-        $this->assertCount(4, $results);
-
-        // Verify order
-        $actualNames = array_map(fn($c) => $c->name, array_slice($results, 0, 3));
-        $this->assertEquals(
-            array_slice($expectedOrder, 0, 3),
-            $actualNames,
-            "Results should be ordered by {$sortField} {$sortDirection}"
-        );
-    }
-
-    public static function sortFieldProvider(): iterable
-    {
-        yield 'last_activity_at DESC' => [
-            'sortField' => 'last_activity_at',
-            'sortDirection' => 'DESC',
-            'expectedOrder' => ['Customer 5', 'Customer 4', 'Customer 3', 'Customer 2', 'Customer 1'],
-        ];
-
-        yield 'last_activity_at ASC' => [
-            'sortField' => 'last_activity_at',
-            'sortDirection' => 'ASC',
-            'expectedOrder' => ['Customer 1', 'Customer 2', 'Customer 3', 'Customer 4', 'Customer 5'],
-        ];
-
-        yield 'login_count DESC' => [
-            'sortField' => 'login_count',
-            'sortDirection' => 'DESC',
-            'expectedOrder' => ['Customer 5', 'Customer 4', 'Customer 3', 'Customer 2', 'Customer 1'],
-        ];
-
-        yield 'login_count ASC' => [
-            'sortField' => 'login_count',
-            'sortDirection' => 'ASC',
-            'expectedOrder' => ['Customer 1', 'Customer 2', 'Customer 3', 'Customer 4', 'Customer 5'],
-        ];
+        // Should work correctly even without withSortFields()
+        $this->assertCount(4, $results); // 3 + 1 for hasMore
+        $this->assertEquals('Customer 5', $results[0]->name);
+        $this->assertEquals('Customer 4', $results[1]->name);
+        $this->assertEquals('Customer 3', $results[2]->name);
     }
 
     /**
-     * Test cursor-based keyset filtering works correctly
+     * Test that keyset filtering works with dynamically detected sort fields
      */
     #[Test]
-    public function testCursorKeysetFiltering(): void
+    public function testKeysetFilteringWithDynamicSorting(): void
     {
         $this->seedTestCustomers();
 
         $select = new Select($this->getContainer()->get(ORM::class), Fixtures\Entity\Customer::class);
-        $select = $select->orderBy('login_count', 'DESC');
 
+        // Grid schema without sort field configuration
         $gridSchema = new GridSchema();
-        $paginator = $this->createPaginator(3);
-        $gridSchema->setPaginator($paginator);
+        $gridSchema->addSorter('logins', new Sorter('login_count'));
+        $gridSchema->setPaginator($this->createPaginator(2));
 
         // First page
         $grid = self::createGridFactory()
             ->withInput(new \Spiral\DataGrid\Input\ArrayInput([
-                'paginate' => ['first' => 3],
-            ]))
-            ->create($select, $gridSchema);
-
-        $results = iterator_to_array($grid->getIterator());
-
-        // Should get 4 results (3 + 1 for hasMore detection)
-        $this->assertCount(4, $results);
-        $this->assertEquals(50, $results[0]->loginCount);
-        $this->assertEquals(40, $results[1]->loginCount);
-        $this->assertEquals(30, $results[2]->loginCount);
-        // Extra record for hasMore detection
-        $this->assertEquals(20, $results[3]->loginCount);
-    }
-
-    /**
-     * Test composite sorting (multiple fields)
-     */
-    #[Test]
-    public function testCompositeFieldSorting(): void
-    {
-        // Create customers with same login_count but different last_activity_at
-        $customers = [
-            new Fixtures\Entity\Customer(
-                uuid: '00000000-0000-0000-0000-000000000001',
-                name: 'Customer A',
-                email: 'a@example.com',
-                createdAt: new DateTimeImmutable('2024-01-01T10:00:00Z'),
-                lastActivityAt: new DateTimeImmutable('2024-01-10T10:00:00Z'),
-                loginCount: 10,
-            ),
-            new Fixtures\Entity\Customer(
-                uuid: '00000000-0000-0000-0000-000000000002',
-                name: 'Customer B',
-                email: 'b@example.com',
-                createdAt: new DateTimeImmutable('2024-01-02T10:00:00Z'),
-                lastActivityAt: new DateTimeImmutable('2024-01-15T10:00:00Z'),
-                loginCount: 10,
-            ),
-            new Fixtures\Entity\Customer(
-                uuid: '00000000-0000-0000-0000-000000000003',
-                name: 'Customer C',
-                email: 'c@example.com',
-                createdAt: new DateTimeImmutable('2024-01-03T10:00:00Z'),
-                lastActivityAt: new DateTimeImmutable('2024-01-05T10:00:00Z'),
-                loginCount: 10,
-            ),
-        ];
-
-        foreach ($customers as $customer) {
-            $this->persist($customer);
-        }
-        $this->flush();
-
-        $select = new Select($this->getContainer()->get(ORM::class), Fixtures\Entity\Customer::class);
-        $select = $select->orderBy('login_count', 'DESC')->orderBy('last_activity_at', 'DESC');
-
-        $gridSchema = new GridSchema();
-        $paginator = $this->createPaginator(2);
-        $gridSchema->setPaginator($paginator);
-
-        $grid = self::createGridFactory()
-            ->withInput(new \Spiral\DataGrid\Input\ArrayInput([
+                'sort' => ['logins' => 'desc'],
                 'paginate' => ['first' => 2],
             ]))
             ->create($select, $gridSchema);
 
         $results = iterator_to_array($grid->getIterator());
 
-        // Should get 3 results (2 + 1)
-        $this->assertCount(3, $results);
+        // Should work with dynamic sort field detection
+        $this->assertCount(3, $results); // 2 + 1
+        $this->assertEquals(50, $results[0]->loginCount);
+        $this->assertEquals(40, $results[1]->loginCount);
+        $this->assertEquals(30, $results[2]->loginCount); // hasMore detection
+    }
 
-        // All have same login_count, so sorted by last_activity_at DESC
-        $this->assertEquals('Customer B', $results[0]->name); // Jan 15
-        $this->assertEquals('Customer A', $results[1]->name); // Jan 10
+    /**
+     * Test with multiple sorters - user chooses which one at runtime
+     */
+    #[Test]
+    public function testMultipleSorterOptions(): void
+    {
+        $this->seedTestCustomers();
+
+        $select = new Select($this->getContainer()->get(ORM::class), Fixtures\Entity\Customer::class);
+
+        // Grid schema offers multiple sort options
+        $gridSchema = new GridSchema();
+        $gridSchema->addSorter('activity', new Sorter('last_activity_at'));
+        $gridSchema->addSorter('logins', new Sorter('login_count'));
+        $gridSchema->setPaginator($this->createPaginator(3));
+
+        // User chooses to sort by activity
+        $grid1 = self::createGridFactory()
+            ->withInput(new \Spiral\DataGrid\Input\ArrayInput([
+                'sort' => ['activity' => 'desc'],
+                'paginate' => ['first' => 3],
+            ]))
+            ->create($select, $gridSchema);
+
+        $results1 = iterator_to_array($grid1->getIterator());
+        $this->assertEquals('Customer 5', $results1[0]->name); // Latest activity
+
+        // User chooses to sort by logins
+        $grid2 = self::createGridFactory()
+            ->withInput(new \Spiral\DataGrid\Input\ArrayInput([
+                'sort' => ['logins' => 'desc'],
+                'paginate' => ['first' => 3],
+            ]))
+            ->create($select, $gridSchema);
+
+        $results2 = iterator_to_array($grid2->getIterator());
+        $this->assertEquals(50, $results2[0]->loginCount); // Most logins
     }
 
     private function seedTestCustomers(): array

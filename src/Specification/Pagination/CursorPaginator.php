@@ -35,11 +35,6 @@ class CursorPaginator implements FilterInterface, SequenceInterface
     private int $limit;
     private ?CursorDataInterface $cursorData = null;
 
-    /**
-     * @var array<string, string> Field name => direction ('ASC' or 'DESC')
-     */
-    private array $sortFields = [];
-
     public function __construct(
         private readonly int $defaultLimit,
         private readonly ValueInterface $limitValue,
@@ -55,19 +50,6 @@ class CursorPaginator implements FilterInterface, SequenceInterface
 
         $this->direction = CursorDirection::FORWARD;
         $this->limit = $defaultLimit;
-    }
-
-    /**
-     * Configure sort fields for cursor generation.
-     *
-     * @param array<string, string> $sortFields Field name => direction ('ASC' or 'DESC')
-     * @return self New instance with configured sort fields
-     */
-    public function withSortFields(array $sortFields): self
-    {
-        $paginator = clone $this;
-        $paginator->sortFields = $sortFields;
-        return $paginator;
     }
 
     #[\Override]
@@ -118,16 +100,17 @@ class CursorPaginator implements FilterInterface, SequenceInterface
             new CursorLimit($this->limit),
         ];
 
-        // Only add sort direction spec for backward pagination (needs reversal)
-        if ($this->sortFields !== [] && $this->direction->isBackward()) {
-            $specifications[] = new SortDirection($this->sortFields, $this->direction);
+        // SortDirection will be detected from query by the Writer
+        if ($this->direction->isBackward()) {
+            $specifications[] = new SortDirection([], $this->direction);
         }
 
-        if ($this->cursorData !== null && $this->sortFields !== []) {
+        if ($this->cursorData !== null) {
+            // Fields will be detected from query's ORDER BY by the Writer
             $specifications[] = new KeysetFilter(
                 $this->cursorData,
                 $this->direction,
-                array_keys($this->sortFields),
+                [],
             );
         }
 
@@ -156,16 +139,6 @@ class CursorPaginator implements FilterInterface, SequenceInterface
     public function getCursorData(): ?CursorDataInterface
     {
         return $this->cursorData;
-    }
-
-    /**
-     * Get configured sort fields.
-     *
-     * @return array<string, string>
-     */
-    public function getSortFields(): array
-    {
-        return $this->sortFields;
     }
 
     private function validateValue(array $value): void

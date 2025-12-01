@@ -18,18 +18,38 @@ use ReflectionProperty;
 final class CursorGenerator
 {
     /**
-     * Generate a cursor for an entity.
+     * Generate a cursor for an entity using field names extracted from a query.
      *
      * @param mixed $entity Entity to generate cursor for
-     * @param array<string> $sortFields Fields to include in cursor
+     * @param \Cycle\ORM\Select $query Query to extract sort fields from
+     * @param CursorEncoderInterface $encoder Encoder to use
+     * @return string Encoded cursor
+     *
+     * @psalm-suppress UndefinedClass
+     */
+    public function generateFromQuery(
+        mixed $entity,
+        mixed $query,
+        CursorEncoderInterface $encoder,
+    ): string {
+        $fieldNames = \Cardyo\SpiralCursorPagination\Util\QuerySortFieldsExtractor::extractFieldNames($query);
+
+        return $this->generateFromFields($entity, $fieldNames, $encoder);
+    }
+
+    /**
+     * Generate a cursor for an entity from explicit field names.
+     *
+     * @param mixed $entity Entity to generate cursor for
+     * @param array<string> $fieldNames Fields to include in cursor
      * @param CursorEncoderInterface $encoder Encoder to use
      * @return string Encoded cursor
      */
-    public function generate(mixed $entity, array $sortFields, CursorEncoderInterface $encoder): string
+    public function generateFromFields(mixed $entity, array $fieldNames, CursorEncoderInterface $encoder): string
     {
         $cursorData = [];
 
-        foreach ($sortFields as $field) {
+        foreach ($fieldNames as $field) {
             $cursorData[$field] = $this->extractValue($entity, $field);
         }
 

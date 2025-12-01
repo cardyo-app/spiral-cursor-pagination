@@ -49,6 +49,15 @@ final class KeysetFilterWriter implements WriterInterface
         $cursorData = $specification->getCursorData();
         $operator = $specification->isForward() ? '>' : '<';
 
+        // If no fields specified, detect from query's ORDER BY clauses
+        if ($fields === []) {
+            $fields = $this->extractSortFieldsFromQuery($source);
+            if ($fields === []) {
+                // No sort order to build keyset filter from
+                return $source;
+            }
+        }
+
         foreach ($fields as $field) {
             if (!$cursorData->has($field)) {
                 return $source;
@@ -62,6 +71,50 @@ final class KeysetFilterWriter implements WriterInterface
         }
 
         return $this->buildTupleComparison($source, $fields, $cursorData, $operator);
+    }
+
+    /**
+     * Extract sort fields from query's ORDER BY clauses.
+     *
+     * @return array<string>
+     * @psalm-suppress UndefinedClass
+     */
+    private function extractSortFieldsFromQuery(Select $select): array
+    {
+        $tokens = $select->getBuilder()->getQuery()->getTokens();
+
+        if (empty($tokens['orderBy'])) {
+            return [];
+        }
+
+        $fields = [];
+        foreach ($tokens['orderBy'] as [$field, $direction]) {
+            // Extract column name from qualified names like "customer.uuid"
+            $columnName = $this->extractColumnName($field);
+            $fields[] = $columnName;
+        }
+
+        return $fields;
+    }
+
+    /**
+     * Extract column name from potentially qualified field name.
+     *
+     * @param mixed $field
+     */
+    private function extractColumnName(mixed $field): string
+    {
+        if (!is_string($field)) {
+            return (string) $field;
+        }
+
+        // Check if it's a qualified name (table.column or alias.column)
+        if (str_contains($field, '.')) {
+            $parts = explode('.', $field);
+            return end($parts);
+        }
+
+        return $field;
     }
 
     /**

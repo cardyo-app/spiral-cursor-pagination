@@ -25,15 +25,17 @@ final class ConnectionFactory
      * Create a Connection from query results.
      *
      * @param iterable<mixed> $results Query results (may include extra record)
+     * @param mixed $query The query object (e.g., Cycle\ORM\Select) to extract sort fields from
      * @param array{first?: int, last?: int, after?: string, before?: string} $paginatorState State from CursorPaginator::getValue()
-     * @param array<string> $sortFields Fields used for cursor generation
      * @param CursorEncoderInterface $encoder Encoder for generating cursors
      * @param int|null $totalCount Optional total count of all items
+     *
+     * @psalm-suppress UndefinedClass
      */
     public function createConnection(
         iterable $results,
+        mixed $query,
         array $paginatorState,
-        array $sortFields,
         CursorEncoderInterface $encoder,
         ?int $totalCount = null,
     ): Connection {
@@ -60,7 +62,7 @@ final class ConnectionFactory
         $edges = array_map(
             fn($node): Edge => new Edge(
                 node: $node,
-                cursor: $this->cursorGenerator->generate($node, $sortFields, $encoder),
+                cursor: $this->cursorGenerator->generateFromQuery($node, $query, $encoder),
             ),
             $results,
         );

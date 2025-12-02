@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace Cardyo\Tests\SpiralCursorPagination\Integration;
 
 use Cardyo\SpiralCursorPagination\CursorEncoder\CursorCoder;
+use Cardyo\SpiralCursorPagination\Service\ConnectionFactory;
+use Cardyo\SpiralCursorPagination\Service\CursorGenerator;
+use Cardyo\SpiralCursorPagination\Service\PaginationMetadataCalculator;
 use Cardyo\SpiralCursorPagination\Specification\Pagination\CursorPaginator;
 use Cardyo\Tests\SpiralCursorPagination\Fixtures;
 use Cycle\Database\DatabaseProviderInterface;
@@ -118,16 +121,39 @@ class CursorPaginationWithManualSortingTest extends AbstractTestCase
 
         $results = iterator_to_array($grid->getIterator());
 
-        // Should return limit+1 = 4 (extra for hasMore detection)
-        $this->assertCount(4, $results);
+        // Create Connection response
+        $connectionFactory = new ConnectionFactory(
+            new CursorGenerator(),
+            new PaginationMetadataCalculator(),
+        );
+        $connection = $connectionFactory->createConnection(
+            results: $results,
+            query: $grid->getSource(),
+            paginatorState: $gridSchema->getPaginator()->getValue(),
+            encoder: new CursorCoder(),
+        );
+
+        // Test Connection response
+        $this->assertCount(3, $connection->nodes);
 
         // Verify order
-        $actualNames = array_map(fn($c) => $c->name, array_slice($results, 0, 3));
+        $actualNames = array_map(fn($c) => $c->name, $connection->nodes);
         $this->assertEquals(
             array_slice($expectedOrder, 0, 3),
             $actualNames,
             "Results should be ordered by {$sortField} {$sortDirection}"
         );
+
+        // Test PageInfo
+        $this->assertTrue($connection->pageInfo->hasNextPage);
+        $this->assertFalse($connection->pageInfo->hasPreviousPage);
+
+        // Test edges
+        $this->assertCount(3, $connection->edges);
+        foreach ($connection->edges as $edge) {
+            $this->assertNotEmpty($edge->cursor);
+            $this->assertNotNull($edge->node);
+        }
     }
 
     public static function sortFieldProvider(): iterable
@@ -181,13 +207,34 @@ class CursorPaginationWithManualSortingTest extends AbstractTestCase
 
         $results = iterator_to_array($grid->getIterator());
 
-        // Should get 4 results (3 + 1 for hasMore detection)
-        $this->assertCount(4, $results);
-        $this->assertEquals(50, $results[0]->loginCount);
-        $this->assertEquals(40, $results[1]->loginCount);
-        $this->assertEquals(30, $results[2]->loginCount);
-        // Extra record for hasMore detection
-        $this->assertEquals(20, $results[3]->loginCount);
+        // Create Connection response
+        $connectionFactory = new ConnectionFactory(
+            new CursorGenerator(),
+            new PaginationMetadataCalculator(),
+        );
+        $connection = $connectionFactory->createConnection(
+            results: $results,
+            query: $grid->getSource(),
+            paginatorState: $gridSchema->getPaginator()->getValue(),
+            encoder: new CursorCoder(),
+        );
+
+        // Test Connection response
+        $this->assertCount(3, $connection->nodes);
+        $this->assertEquals(50, $connection->nodes[0]->loginCount);
+        $this->assertEquals(40, $connection->nodes[1]->loginCount);
+        $this->assertEquals(30, $connection->nodes[2]->loginCount);
+
+        // Test PageInfo - should have more pages (Customer 2 and 1 remain)
+        $this->assertTrue($connection->pageInfo->hasNextPage);
+        $this->assertFalse($connection->pageInfo->hasPreviousPage);
+
+        // Test edges
+        $this->assertCount(3, $connection->edges);
+        foreach ($connection->edges as $edge) {
+            $this->assertNotEmpty($edge->cursor);
+            $this->assertNotNull($edge->node);
+        }
     }
 
     /**
@@ -244,12 +291,35 @@ class CursorPaginationWithManualSortingTest extends AbstractTestCase
 
         $results = iterator_to_array($grid->getIterator());
 
-        // Should get 3 results (2 + 1)
-        $this->assertCount(3, $results);
+        // Create Connection response
+        $connectionFactory = new ConnectionFactory(
+            new CursorGenerator(),
+            new PaginationMetadataCalculator(),
+        );
+        $connection = $connectionFactory->createConnection(
+            results: $results,
+            query: $grid->getSource(),
+            paginatorState: $gridSchema->getPaginator()->getValue(),
+            encoder: new CursorCoder(),
+        );
+
+        // Test Connection response
+        $this->assertCount(2, $connection->nodes);
 
         // All have same login_count, so sorted by last_activity_at DESC
-        $this->assertEquals('Customer B', $results[0]->name); // Jan 15
-        $this->assertEquals('Customer A', $results[1]->name); // Jan 10
+        $this->assertEquals('Customer B', $connection->nodes[0]->name); // Jan 15
+        $this->assertEquals('Customer A', $connection->nodes[1]->name); // Jan 10
+
+        // Test PageInfo - should have more pages (Customer C remains)
+        $this->assertTrue($connection->pageInfo->hasNextPage);
+        $this->assertFalse($connection->pageInfo->hasPreviousPage);
+
+        // Test edges
+        $this->assertCount(2, $connection->edges);
+        foreach ($connection->edges as $edge) {
+            $this->assertNotEmpty($edge->cursor);
+            $this->assertNotNull($edge->node);
+        }
     }
 
     private function seedTestCustomers(): array

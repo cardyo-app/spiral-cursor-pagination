@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace Cardyo\Tests\SpiralCursorPagination\Integration;
 
 use Cardyo\SpiralCursorPagination\CursorEncoder\CursorCoder;
+use Cardyo\SpiralCursorPagination\Service\ConnectionFactory;
+use Cardyo\SpiralCursorPagination\Service\CursorGenerator;
+use Cardyo\SpiralCursorPagination\Service\PaginationMetadataCalculator;
 use Cardyo\SpiralCursorPagination\Specification\Pagination\CursorPaginator;
 use Cardyo\Tests\SpiralCursorPagination\Fixtures;
 use Cycle\Database\DatabaseProviderInterface;
@@ -110,7 +113,8 @@ class CursorPaginationWithDynamicSortingTest extends AbstractTestCase
         // Notice: NO withSortFields() call here because sort params aren't known yet
         $gridSchema = new GridSchema();
         $gridSchema->addSorter('activity', new Sorter('last_activity_at'));
-        $gridSchema->setPaginator($this->createPaginator(3));
+        $paginator = $this->createPaginator(3);
+        $gridSchema->setPaginator($paginator);
 
         // User requests with specific sort direction
         $grid = self::createGridFactory()
@@ -122,11 +126,38 @@ class CursorPaginationWithDynamicSortingTest extends AbstractTestCase
 
         $results = iterator_to_array($grid->getIterator());
 
-        // Should work correctly even without withSortFields()
-        $this->assertCount(4, $results); // 3 + 1 for hasMore
-        $this->assertEquals('Customer 5', $results[0]->name);
-        $this->assertEquals('Customer 4', $results[1]->name);
-        $this->assertEquals('Customer 3', $results[2]->name);
+        // Create Connection response
+        $connectionFactory = new ConnectionFactory(
+            new CursorGenerator(),
+            new PaginationMetadataCalculator(),
+        );
+        $connection = $connectionFactory->createConnection(
+            results: $results,
+            query: $grid->getSource(),
+            paginatorState: $gridSchema->getPaginator()->getValue(),
+            encoder: new CursorCoder(),
+        );
+
+        // Test the actual Connection response
+        $this->assertCount(3, $connection->nodes);
+        $this->assertCount(3, $connection->edges);
+
+        // Verify order
+        $this->assertEquals('Customer 5', $connection->nodes[0]->name);
+        $this->assertEquals('Customer 4', $connection->nodes[1]->name);
+        $this->assertEquals('Customer 3', $connection->nodes[2]->name);
+
+        // Test PageInfo
+        $this->assertTrue($connection->pageInfo->hasNextPage);
+        $this->assertFalse($connection->pageInfo->hasPreviousPage);
+        $this->assertNotNull($connection->pageInfo->startCursor);
+        $this->assertNotNull($connection->pageInfo->endCursor);
+
+        // Test edges have cursors
+        foreach ($connection->edges as $edge) {
+            $this->assertNotEmpty($edge->cursor);
+            $this->assertNotNull($edge->node);
+        }
     }
 
     /**
@@ -154,11 +185,26 @@ class CursorPaginationWithDynamicSortingTest extends AbstractTestCase
 
         $results = iterator_to_array($grid->getIterator());
 
-        // Should work with dynamic sort field detection
-        $this->assertCount(3, $results); // 2 + 1
-        $this->assertEquals(50, $results[0]->loginCount);
-        $this->assertEquals(40, $results[1]->loginCount);
-        $this->assertEquals(30, $results[2]->loginCount); // hasMore detection
+        // Create Connection response
+        $connectionFactory = new ConnectionFactory(
+            new CursorGenerator(),
+            new PaginationMetadataCalculator(),
+        );
+        $connection = $connectionFactory->createConnection(
+            results: $results,
+            query: $grid->getSource(),
+            paginatorState: $gridSchema->getPaginator()->getValue(),
+            encoder: new CursorCoder(),
+        );
+
+        // Test Connection has correct data
+        $this->assertCount(2, $connection->nodes);
+        $this->assertEquals(50, $connection->nodes[0]->loginCount);
+        $this->assertEquals(40, $connection->nodes[1]->loginCount);
+
+        // Test PageInfo indicates more pages
+        $this->assertTrue($connection->pageInfo->hasNextPage);
+        $this->assertFalse($connection->pageInfo->hasPreviousPage);
     }
 
     /**
@@ -170,6 +216,10 @@ class CursorPaginationWithDynamicSortingTest extends AbstractTestCase
         $this->seedTestCustomers();
 
         $select = new Select($this->getContainer()->get(ORM::class), Fixtures\Entity\Customer::class);
+        $connectionFactory = new ConnectionFactory(
+            new CursorGenerator(),
+            new PaginationMetadataCalculator(),
+        );
 
         // Grid schema offers multiple sort options
         $gridSchema = new GridSchema();
@@ -186,7 +236,15 @@ class CursorPaginationWithDynamicSortingTest extends AbstractTestCase
             ->create($select, $gridSchema);
 
         $results1 = iterator_to_array($grid1->getIterator());
-        $this->assertEquals('Customer 5', $results1[0]->name); // Latest activity
+        $connection1 = $connectionFactory->createConnection(
+            results: $results1,
+            query: $grid1->getSource(),
+            paginatorState: $gridSchema->getPaginator()->getValue(),
+            encoder: new CursorCoder(),
+        );
+
+        $this->assertEquals('Customer 5', $connection1->nodes[0]->name); // Latest activity
+        $this->assertCount(3, $connection1->nodes);
 
         // User chooses to sort by logins
         $grid2 = self::createGridFactory()
@@ -197,7 +255,15 @@ class CursorPaginationWithDynamicSortingTest extends AbstractTestCase
             ->create($select, $gridSchema);
 
         $results2 = iterator_to_array($grid2->getIterator());
-        $this->assertEquals(50, $results2[0]->loginCount); // Most logins
+        $connection2 = $connectionFactory->createConnection(
+            results: $results2,
+            query: $grid2->getSource(),
+            paginatorState: $gridSchema->getPaginator()->getValue(),
+            encoder: new CursorCoder(),
+        );
+
+        $this->assertEquals(50, $connection2->nodes[0]->loginCount); // Most logins
+        $this->assertCount(3, $connection2->nodes);
     }
 
     private function seedTestCustomers(): array

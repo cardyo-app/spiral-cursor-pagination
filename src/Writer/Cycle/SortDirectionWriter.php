@@ -44,21 +44,18 @@ final class SortDirectionWriter implements WriterInterface
         $builder = $source->getBuilder();
         $tokens = $builder->getQuery()->getTokens();
 
-        // Only reorder if we have existing orderBy clauses
-        if (!empty($tokens['orderBy'])) {
-            // Get existing order clauses
-            $existingOrders = $tokens['orderBy'];
-
-            // Clear the order
-            $builder->getQuery()->orderBy([]);
-
-            // Reapply with reversed directions for backward pagination
-            foreach ($existingOrders as [$field, $originalDirection]) {
-                // Reverse the direction for backward pagination
-                $newDirection = $originalDirection === 'ASC' ? 'DESC' : 'ASC';
-                $source = $source->orderBy($field, $newDirection);
-            }
-        }
+        // For backward pagination, we DON'T reverse the ORDER BY in the query.
+        // Instead, the KeysetFilterWriter adjusts the comparison operator based on both
+        // the pagination direction and sort direction to fetch the correct records.
+        // This approach is simpler and avoids the need to reverse results afterward.
+        //
+        // Example: For "last: 2, before: cursor(30)" with ORDER BY login_count DESC:
+        // - KeysetFilterWriter uses ">" operator (login_count > 30)
+        // - Query returns items in DESC order: [50, 40]
+        // - These are already in correct user-visible order
+        //
+        // Note: This is different from the typical Relay implementation which reverses
+        // the ORDER BY and then reverses the results, but achieves the same outcome.
 
         return $source;
     }

@@ -47,7 +47,6 @@ final class KeysetFilterWriter implements WriterInterface
 
         $fields = $specification->getFields();
         $cursorData = $specification->getCursorData();
-        $operator = $specification->isForward() ? '>' : '<';
 
         // If no fields specified, detect from query's ORDER BY clauses
         if ($fields === []) {
@@ -64,6 +63,9 @@ final class KeysetFilterWriter implements WriterInterface
             }
         }
 
+        // Determine operator based on pagination direction AND sort direction
+        $operator = $this->determineOperator($source, $fields[0], $specification->isForward());
+
         if (count($fields) === 1) {
             $field = $fields[0];
             $value = $this->convertCursorValue($cursorData->get($field));
@@ -71,6 +73,42 @@ final class KeysetFilterWriter implements WriterInterface
         }
 
         return $this->buildTupleComparison($source, $fields, $cursorData, $operator);
+    }
+
+    /**
+     * Determine the comparison operator based on pagination and sort direction.
+     *
+     * Logic:
+     * - Forward + ASC: > (next items have larger values)
+     * - Forward + DESC: < (next items have smaller values)
+     * - Backward + ASC: < (previous items have smaller values)
+     * - Backward + DESC: > (previous items have larger values)
+     *
+     * @psalm-suppress UndefinedClass
+     */
+    private function determineOperator(Select $select, string $field, bool $isForward): string
+    {
+        $tokens = $select->getBuilder()->getQuery()->getTokens();
+
+        if (empty($tokens['orderBy'])) {
+            // No explicit ORDER BY, assume ASC
+            return $isForward ? '>' : '<';
+        }
+
+        // Find the direction for our field
+        $direction = 'ASC';
+        foreach ($tokens['orderBy'] as [$orderField, $orderDirection]) {
+            $columnName = $this->extractColumnName($orderField);
+            if ($columnName === $field) {
+                $direction = strtoupper($orderDirection);
+                break;
+            }
+        }
+
+        $isDesc = ($direction === 'DESC');
+
+        // XOR logic: if directions match, use >, otherwise use <
+        return ($isForward === !$isDesc) ? '>' : '<';
     }
 
     /**

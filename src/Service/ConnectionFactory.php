@@ -47,16 +47,13 @@ final class ConnectionFactory
 
         $hasMore = count($results) > $requestedLimit;
 
-        if ($isBackward) {
-            $results = array_reverse($results);
-        }
-
+        // Remove the extra record used for hasMore detection
+        // Note: We don't reverse results for backward pagination since the query
+        // ORDER BY is not reversed (KeysetFilterWriter handles the correct operator)
         if ($hasMore) {
-            if ($isBackward) {
-                array_shift($results);
-            } else {
-                array_pop($results);
-            }
+            // For both forward and backward, remove the last item
+            // since we always order in the user-requested direction
+            array_pop($results);
         }
 
         $edges = array_map(

@@ -60,6 +60,7 @@ final class CursorGenerator
      * Extract a field value from an entity.
      *
      * Supports both object properties and array access.
+     * Tries both exact field name and camelCase variant (for snake_case DB columns).
      *
      * @param mixed $entity Entity to extract from
      * @param string $field Field name
@@ -72,15 +73,15 @@ final class CursorGenerator
         }
 
         if (is_object($entity)) {
+            // Try exact field name first
             if (property_exists($entity, $field)) {
-                $reflection = new ReflectionClass($entity);
-                $property = $reflection->getProperty($field);
+                return $this->getPropertyValue($entity, $field);
+            }
 
-                if (!$property->isPublic()) {
-                    $property->setAccessible(true);
-                }
-
-                return $property->getValue($entity);
+            // Try camelCase variant (for snake_case DB columns)
+            $camelField = $this->snakeToCamel($field);
+            if ($camelField !== $field && property_exists($entity, $camelField)) {
+                return $this->getPropertyValue($entity, $camelField);
             }
 
             if (method_exists($entity, '__get')) {
@@ -89,5 +90,28 @@ final class CursorGenerator
         }
 
         return null;
+    }
+
+    /**
+     * Get property value from an object, handling visibility.
+     */
+    private function getPropertyValue(object $entity, string $property): mixed
+    {
+        $reflection = new ReflectionClass($entity);
+        $prop = $reflection->getProperty($property);
+
+        if (!$prop->isPublic()) {
+            $prop->setAccessible(true);
+        }
+
+        return $prop->getValue($entity);
+    }
+
+    /**
+     * Convert snake_case to camelCase.
+     */
+    private function snakeToCamel(string $string): string
+    {
+        return lcfirst(str_replace('_', '', ucwords($string, '_')));
     }
 }

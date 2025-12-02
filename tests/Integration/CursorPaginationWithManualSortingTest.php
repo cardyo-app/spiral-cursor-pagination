@@ -322,6 +322,218 @@ class CursorPaginationWithManualSortingTest extends AbstractTestCase
         }
     }
 
+    /**
+     * Test that cursors from one page can be used to navigate to the next page
+     */
+    #[Test]
+    public function testCursorNavigationForward(): void
+    {
+        $this->seedTestCustomers();
+
+        $select = new Select($this->getContainer()->get(ORM::class), Fixtures\Entity\Customer::class);
+        $select = $select->orderBy('login_count', 'DESC');
+
+        $gridSchema = new GridSchema();
+
+        // Configure paginator
+        $paginator = $this->createPaginator(10);
+        $gridSchema->setPaginator($paginator);
+
+        // Get first page (3 items)
+        $firstPageInput = ['first' => 3];
+        $grid = self::createGridFactory()
+            ->withInput(new \Spiral\DataGrid\Input\ArrayInput([
+                'paginate' => $firstPageInput,
+            ]))
+            ->create(clone $select, $gridSchema);
+
+        $results = iterator_to_array($grid->getIterator());
+
+        $connectionFactory = new ConnectionFactory(
+            new CursorGenerator(),
+            new PaginationMetadataCalculator(),
+        );
+
+        $firstPage = $connectionFactory->createConnection(
+            results: $results,
+            query: $grid->getSource(),
+            paginatorState: $firstPageInput,
+            encoder: new CursorCoder(),
+        );
+
+        // Verify first page
+        $this->assertCount(3, $firstPage->nodes);
+        $this->assertEquals('Customer 5', $firstPage->nodes[0]->name); // login_count: 50
+        $this->assertEquals('Customer 4', $firstPage->nodes[1]->name); // login_count: 40
+        $this->assertEquals('Customer 3', $firstPage->nodes[2]->name); // login_count: 30
+        $this->assertTrue($firstPage->pageInfo->hasNextPage);
+        $this->assertNotEmpty($firstPage->pageInfo->endCursor);
+
+        // Use endCursor to get next page
+        $afterCursor = $firstPage->pageInfo->endCursor;
+
+        $secondPageInput = [
+            'first' => 3,
+            'after' => $afterCursor,
+        ];
+        $grid2 = self::createGridFactory()
+            ->withInput(new \Spiral\DataGrid\Input\ArrayInput([
+                'paginate' => $secondPageInput,
+            ]))
+            ->create(clone $select, $gridSchema);
+
+        $results2 = iterator_to_array($grid2->getIterator());
+
+        $secondPage = $connectionFactory->createConnection(
+            results: $results2,
+            query: $grid2->getSource(),
+            paginatorState: $secondPageInput,
+            encoder: new CursorCoder(),
+        );
+
+        // Verify second page contains next items
+        $this->assertCount(2, $secondPage->nodes);
+        $this->assertEquals('Customer 2', $secondPage->nodes[0]->name); // login_count: 20
+        $this->assertEquals('Customer 1', $secondPage->nodes[1]->name); // login_count: 10
+        $this->assertFalse($secondPage->pageInfo->hasNextPage);
+        $this->assertTrue($secondPage->pageInfo->hasPreviousPage);
+    }
+
+    /**
+     * Test that cursors can be used to navigate backward
+     */
+    #[Test]
+    public function testCursorNavigationBackward(): void
+    {
+        $this->seedTestCustomers();
+
+        $select = new Select($this->getContainer()->get(ORM::class), Fixtures\Entity\Customer::class);
+        $select = $select->orderBy('login_count', 'DESC');
+
+        $gridSchema = new GridSchema();
+
+        // Configure paginator
+        $paginator = $this->createPaginator(10);
+        $gridSchema->setPaginator($paginator);
+
+        // Get a page from the middle using 'after' (skip first 2 items)
+        $allPageInput = ['first' => 5];
+        $grid = self::createGridFactory()
+            ->withInput(new \Spiral\DataGrid\Input\ArrayInput([
+                'paginate' => $allPageInput,
+            ]))
+            ->create(clone $select, $gridSchema);
+
+        $results = iterator_to_array($grid->getIterator());
+
+        $connectionFactory = new ConnectionFactory(
+            new CursorGenerator(),
+            new PaginationMetadataCalculator(),
+        );
+        $allPage = $connectionFactory->createConnection(
+            results: $results,
+            query: $grid->getSource(),
+            paginatorState: $allPageInput,
+            encoder: new CursorCoder(),
+        );
+
+        // Get cursor for Customer 3 (middle item)
+        $middleCursor = $allPage->edges[2]->cursor; // Customer 3
+
+        // Navigate backward from middle cursor
+        $backwardPageInput = [
+            'last' => 2,
+            'before' => $middleCursor,
+        ];
+
+        // Create a new schema for backward pagination to avoid state pollution
+        $backwardSchema = new GridSchema();
+        $backwardPaginator = $this->createPaginator(10);
+        $backwardSchema->setPaginator($backwardPaginator);
+
+        $grid2 = self::createGridFactory()
+            ->withInput(new \Spiral\DataGrid\Input\ArrayInput([
+                'paginate' => $backwardPageInput,
+            ]))
+            ->create(clone $select, $backwardSchema);
+
+        $results2 = iterator_to_array($grid2->getIterator());
+
+        $backwardPage = $connectionFactory->createConnection(
+            results: $results2,
+            query: $grid2->getSource(),
+            paginatorState: $backwardPageInput,
+            encoder: new CursorCoder(),
+        );
+
+        // Should get Customer 5 and Customer 4 (the 2 items before Customer 3)
+        $this->assertCount(2, $backwardPage->nodes);
+        $this->assertEquals('Customer 5', $backwardPage->nodes[0]->name); // login_count: 50
+        $this->assertEquals('Customer 4', $backwardPage->nodes[1]->name); // login_count: 40
+        $this->assertFalse($backwardPage->pageInfo->hasPreviousPage);
+        $this->assertTrue($backwardPage->pageInfo->hasNextPage);
+    }
+
+    /**
+     * Test cursor navigation across multiple pages
+     */
+    #[Test]
+    public function testMultiPageCursorNavigation(): void
+    {
+        $this->seedTestCustomers();
+
+        $select = new Select($this->getContainer()->get(ORM::class), Fixtures\Entity\Customer::class);
+        $select = $select->orderBy('login_count', 'DESC');
+
+        $gridSchema = new GridSchema();
+
+        // Configure paginator with small page size
+        $paginator = $this->createPaginator(10);
+        $gridSchema->setPaginator($paginator);
+
+        $connectionFactory = new ConnectionFactory(
+            new CursorGenerator(),
+            new PaginationMetadataCalculator(),
+        );
+
+        $allCustomers = [];
+        $cursor = null;
+
+        // Navigate through all pages collecting all customers
+        do {
+            $pageInput = ['first' => 2];
+            if ($cursor !== null) {
+                $pageInput['after'] = $cursor;
+            }
+
+            $grid = self::createGridFactory()
+                ->withInput(new \Spiral\DataGrid\Input\ArrayInput([
+                    'paginate' => $pageInput,
+                ]))
+                ->create(clone $select, $gridSchema);
+
+            $results = iterator_to_array($grid->getIterator());
+
+            $page = $connectionFactory->createConnection(
+                results: $results,
+                query: $grid->getSource(),
+                paginatorState: $pageInput,
+                encoder: new CursorCoder(),
+            );
+
+            array_push($allCustomers, ...$page->nodes);
+            $cursor = $page->pageInfo->hasNextPage ? $page->pageInfo->endCursor : null;
+        } while ($cursor !== null);
+
+        // Should have collected all 5 customers
+        $this->assertCount(5, $allCustomers);
+        $this->assertEquals('Customer 5', $allCustomers[0]->name);
+        $this->assertEquals('Customer 4', $allCustomers[1]->name);
+        $this->assertEquals('Customer 3', $allCustomers[2]->name);
+        $this->assertEquals('Customer 2', $allCustomers[3]->name);
+        $this->assertEquals('Customer 1', $allCustomers[4]->name);
+    }
+
     private function seedTestCustomers(): array
     {
         $customers = [

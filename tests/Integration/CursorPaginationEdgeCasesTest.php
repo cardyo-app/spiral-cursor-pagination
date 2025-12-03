@@ -9,6 +9,7 @@ use Cardyo\SpiralCursorPagination\Response\Connection;
 use Cardyo\Tests\SpiralCursorPagination\Fixtures;
 use Cycle\Database\DatabaseManager;
 use Cycle\ORM\EntityManagerInterface;
+use Cycle\ORM\ORM;
 use Cycle\ORM\Schema;
 use Cycle\ORM\SchemaInterface;
 use Nyholm\Psr7\ServerRequest;
@@ -86,15 +87,21 @@ class CursorPaginationEdgeCasesTest extends AbstractTestCase
     public function testPaginationWithEmptyResults(): void
     {
         // Don't seed any data
-        $controller = new class {
-            public function index(
-                #[CursorPaginate(
-                    entity: Fixtures\Entity\Customer::class,
-                    pageSize: 10,
-                )]
-                Connection $connection
-            ): Connection {
-                return $connection;
+
+        // Set up GridSchema with paginator (no sorters - interceptor will add default PK sorter)
+        $gridSchema = new GridSchema();
+        $gridSchema->setPaginator($this->paginationHelper->createPaginator(defaultLimit: 10));
+        $this->getContainer()->bindSingleton(TestBasicGridSchema::class, fn() => $gridSchema);
+
+        $controller = new class($this->getContainer()->get(ORM::class)) {
+            public function __construct(private readonly ORM $orm) {}
+
+            #[CursorPaginate(schema: TestBasicGridSchema::class)]
+            public function index(): \Cycle\ORM\Select
+            {
+                return $this->orm
+                    ->getRepository(Fixtures\Entity\Customer::class)
+                    ->select();
             }
         };
 
@@ -121,19 +128,24 @@ class CursorPaginationEdgeCasesTest extends AbstractTestCase
     {
         $this->seedSingleCustomer();
 
-        $controller = new class {
-            public function index(
-                #[CursorPaginate(
-                    entity: Fixtures\Entity\Customer::class,
-                    pageSize: 10,
-                )]
-                Connection $connection
-            ): Connection {
-                return $connection;
+        // Set up GridSchema with paginator (no sorters - interceptor will add default PK sorter)
+        $gridSchema = new GridSchema();
+        $gridSchema->setPaginator($this->paginationHelper->createPaginator(defaultLimit: 10));
+        $this->getContainer()->bindSingleton(TestBasicGridSchema::class, fn() => $gridSchema);
+
+        $controller = new class($this->getContainer()->get(ORM::class)) {
+            public function __construct(private readonly ORM $orm) {}
+
+            #[CursorPaginate(schema: TestBasicGridSchema::class)]
+            public function index(): \Cycle\ORM\Select
+            {
+                return $this->orm
+                    ->getRepository(Fixtures\Entity\Customer::class)
+                    ->select();
             }
         };
 
-        $request = new ServerRequest('GET', '/customers?first=10');
+        $request = new ServerRequest('GET', '/customers?paginate[first]=10');
         $connection = $this->executeController($controller, 'index', $request);
 
         // Single item
@@ -159,18 +171,24 @@ class CursorPaginationEdgeCasesTest extends AbstractTestCase
     {
         $this->seedExactlyThreeCustomers();
 
-        $controller = new class {
-            public function index(
-                #[CursorPaginate(
-                    entity: Fixtures\Entity\Customer::class,
-                )]
-                Connection $connection
-            ): Connection {
-                return $connection;
+        // Set up GridSchema with paginator (no sorters - interceptor will add default PK sorter)
+        $gridSchema = new GridSchema();
+        $gridSchema->setPaginator($this->paginationHelper->createPaginator());
+        $this->getContainer()->bindSingleton(TestDefaultGridSchema::class, fn() => $gridSchema);
+
+        $controller = new class($this->getContainer()->get(ORM::class)) {
+            public function __construct(private readonly ORM $orm) {}
+
+            #[CursorPaginate(schema: TestDefaultGridSchema::class)]
+            public function index(): \Cycle\ORM\Select
+            {
+                return $this->orm
+                    ->getRepository(Fixtures\Entity\Customer::class)
+                    ->select();
             }
         };
 
-        $request = new ServerRequest('GET', '/customers?first=3');
+        $request = new ServerRequest('GET', '/customers?paginate[first]=3');
         $connection = $this->executeController($controller, 'index', $request);
 
         // Exactly 3 items
@@ -199,19 +217,19 @@ class CursorPaginationEdgeCasesTest extends AbstractTestCase
 
         $this->getContainer()->bindSingleton(TestComplexFilterGridSchema::class, fn() => $gridSchema);
 
-        $controller = new class {
-            public function index(
-                #[CursorPaginate(
-                    entity: Fixtures\Entity\Customer::class,
-                    schema: TestComplexFilterGridSchema::class,
-                )]
-                Connection $connection
-            ): Connection {
-                return $connection;
+        $controller = new class($this->getContainer()->get(ORM::class)) {
+            public function __construct(private readonly ORM $orm) {}
+
+            #[CursorPaginate(schema: TestComplexFilterGridSchema::class)]
+            public function index(): \Cycle\ORM\Select
+            {
+                return $this->orm
+                    ->getRepository(Fixtures\Entity\Customer::class)
+                    ->select();
             }
         };
 
-        $request = new ServerRequest('GET', '/customers?filter[search]=1&filter[active]=1&sort[activity]=desc&first=2');
+        $request = new ServerRequest('GET', '/customers?filter[search]=1&filter[active]=1&sort[activity]=desc&paginate[first]=2');
         $connection = $this->executeController($controller, 'index', $request);
 
         // Should get filtered results
@@ -231,7 +249,7 @@ class CursorPaginationEdgeCasesTest extends AbstractTestCase
         // Navigate to next page with same filters
         $request2 = new ServerRequest(
             'GET',
-            '/customers?filter[search]=1&filter[active]=1&sort[activity]=desc&first=2&after=' . $connection->pageInfo->endCursor
+            '/customers?filter[search]=1&filter[active]=1&sort[activity]=desc&paginate[first]=2&paginate[after]=' . $connection->pageInfo->endCursor
         );
         $connection2 = $this->executeController($controller, 'index', $request2);
 
@@ -251,29 +269,35 @@ class CursorPaginationEdgeCasesTest extends AbstractTestCase
     {
         $this->seedTestCustomers();
 
-        $controller = new class {
-            public function index(
-                #[CursorPaginate(
-                    entity: Fixtures\Entity\Customer::class,
-                )]
-                Connection $connection
-            ): Connection {
-                return $connection;
+        // Set up GridSchema with paginator (no sorters - interceptor will add default PK sorter)
+        $gridSchema = new GridSchema();
+        $gridSchema->setPaginator($this->paginationHelper->createPaginator());
+        $this->getContainer()->bindSingleton(TestDefaultGridSchema::class, fn() => $gridSchema);
+
+        $controller = new class($this->getContainer()->get(ORM::class)) {
+            public function __construct(private readonly ORM $orm) {}
+
+            #[CursorPaginate(schema: TestDefaultGridSchema::class)]
+            public function index(): \Cycle\ORM\Select
+            {
+                return $this->orm
+                    ->getRepository(Fixtures\Entity\Customer::class)
+                    ->select();
             }
         };
 
         // First request
-        $request1 = new ServerRequest('GET', '/customers?first=3');
+        $request1 = new ServerRequest('GET', '/customers?paginate[first]=3');
         $connection1 = $this->executeController($controller, 'index', $request1);
 
         $cursor = $connection1->pageInfo->endCursor;
 
         // Second request with same cursor (simulate browser back/forward)
-        $request2 = new ServerRequest('GET', "/customers?first=3&after={$cursor}");
+        $request2 = new ServerRequest('GET', "/customers?paginate[first]=3&paginate[after]={$cursor}");
         $connection2 = $this->executeController($controller, 'index', $request2);
 
         // Third request with same cursor (should get identical results)
-        $request3 = new ServerRequest('GET', "/customers?first=3&after={$cursor}");
+        $request3 = new ServerRequest('GET', "/customers?paginate[first]=3&paginate[after]={$cursor}");
         $connection3 = $this->executeController($controller, 'index', $request3);
 
         // Results should be identical
@@ -291,19 +315,24 @@ class CursorPaginationEdgeCasesTest extends AbstractTestCase
     {
         $this->seedExactlyThreeCustomers();
 
-        $controller = new class {
-            public function index(
-                #[CursorPaginate(
-                    entity: Fixtures\Entity\Customer::class,
-                    maxPageSize: 100,
-                )]
-                Connection $connection
-            ): Connection {
-                return $connection;
+        // Set up GridSchema with large max limit (no sorters - interceptor will add default PK sorter)
+        $gridSchema = new GridSchema();
+        $gridSchema->setPaginator($this->paginationHelper->createPaginator(maxLimit: 100));
+        $this->getContainer()->bindSingleton(TestLargePageGridSchema::class, fn() => $gridSchema);
+
+        $controller = new class($this->getContainer()->get(ORM::class)) {
+            public function __construct(private readonly ORM $orm) {}
+
+            #[CursorPaginate(schema: TestLargePageGridSchema::class)]
+            public function index(): \Cycle\ORM\Select
+            {
+                return $this->orm
+                    ->getRepository(Fixtures\Entity\Customer::class)
+                    ->select();
             }
         };
 
-        $request = new ServerRequest('GET', '/customers?first=100');
+        $request = new ServerRequest('GET', '/customers?paginate[first]=100');
         $connection = $this->executeController($controller, 'index', $request);
 
         // Only 3 items exist
@@ -320,14 +349,20 @@ class CursorPaginationEdgeCasesTest extends AbstractTestCase
     {
         $this->seedTestCustomers();
 
-        $controller = new class {
-            public function index(
-                #[CursorPaginate(
-                    entity: Fixtures\Entity\Customer::class,
-                )]
-                Connection $connection
-            ): Connection {
-                return $connection;
+        // Set up GridSchema with paginator (no sorters - interceptor will add default PK sorter)
+        $gridSchema = new GridSchema();
+        $gridSchema->setPaginator($this->paginationHelper->createPaginator());
+        $this->getContainer()->bindSingleton(TestDefaultGridSchema::class, fn() => $gridSchema);
+
+        $controller = new class($this->getContainer()->get(ORM::class)) {
+            public function __construct(private readonly ORM $orm) {}
+
+            #[CursorPaginate(schema: TestDefaultGridSchema::class)]
+            public function index(): \Cycle\ORM\Select
+            {
+                return $this->orm
+                    ->getRepository(Fixtures\Entity\Customer::class)
+                    ->select();
             }
         };
 
@@ -336,9 +371,9 @@ class CursorPaginationEdgeCasesTest extends AbstractTestCase
 
         // Paginate one item at a time
         for ($i = 0; $i < 10; $i++) {
-            $url = '/customers?first=1';
+            $url = '/customers?paginate[first]=1';
             if ($cursor) {
-                $url .= "&after={$cursor}";
+                $url .= "&paginate[after]={$cursor}";
             }
 
             $request = new ServerRequest('GET', $url);
@@ -472,3 +507,12 @@ class CursorPaginationEdgeCasesTest extends AbstractTestCase
 
 // Dummy class for testing complex filter GridSchema
 class TestComplexFilterGridSchema extends GridSchema {}
+
+// GridSchema for basic tests with default limit of 10
+class TestBasicGridSchema extends GridSchema {}
+
+// GridSchema for tests without specific requirements (will use default from request)
+class TestDefaultGridSchema extends GridSchema {}
+
+// GridSchema with high max limit for large requests
+class TestLargePageGridSchema extends GridSchema {}

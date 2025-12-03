@@ -9,53 +9,53 @@ use Attribute;
 /**
  * Attribute for automatic cursor pagination in controller methods.
  *
- * Similar to DataGrid's integration, this attribute marks a parameter
- * that should receive a Connection response with cursor-paginated data.
+ * Similar to DataGrid attribute, this intercepts controller methods that return Select queries
+ * and automatically applies cursor pagination.
  *
- * Example usage:
+ * Usage:
  * ```php
- * class CustomerController
- * {
- *     public function index(
- *         #[CursorPaginate(
- *             entity: Customer::class,
- *             schema: CustomerGridSchema::class,
- *             mapper: [CustomerDTO::class, 'fromEntity']
- *         )]
- *         Connection $connection
- *     ): Connection {
- *         return $connection;
+ * #[CursorPaginate(
+ *     schema: CustomerGridSchema::class,
+ *     view: [CustomerDTO::class, 'fromEntity'],
+ *     countTotal: true
+ * )]
+ * public function index(TenantUserInterface $user): Select {
+ *     return $this->customers
+ *         ->forTenant($user->getTenantId())
+ *         ->select();
+ * }
+ * ```
+ *
+ * IMPORTANT: Your GridSchema MUST have a CursorPaginator configured:
+ * ```php
+ * class CustomerGridSchema extends GridSchema {
+ *     public function __construct(CursorPaginationHelper $helper) {
+ *         $this->setPaginator($helper->createPaginator(defaultLimit: 20, maxLimit: 100));
+ *         $this->addSorter('name', new Sorter('name'));
+ *         // ... other configuration
  *     }
  * }
  * ```
  *
- * Or with minimal configuration:
- * ```php
- * public function index(
- *     #[CursorPaginate(Customer::class)]
- *     Connection $connection
- * ): Connection {
- *     return $connection;
- * }
- * ```
+ * The interceptor will:
+ * - Execute the controller to get the Select query
+ * - Validate that GridSchema has a CursorPaginator configured
+ * - Apply the GridSchema filters/sorting from the request
+ * - Apply cursor pagination
+ * - Map results through the view/mapper if provided
+ * - Return a Connection with paginated results
  */
-#[Attribute(Attribute::TARGET_PARAMETER)]
+#[Attribute(Attribute::TARGET_METHOD)]
 final class CursorPaginate
 {
     /**
-     * @param class-string $entity Entity class name
-     * @param class-string|null $schema GridSchema class name (optional, will try to auto-detect)
-     * @param callable|array|string|null $mapper Mapper function to transform entities to DTOs
-     * @param int|null $pageSize Default page size (overrides helper default)
-     * @param int|null $maxPageSize Maximum page size (overrides helper max)
+     * @param class-string $schema GridSchema class name (REQUIRED - must have CursorPaginator configured)
+     * @param callable|array|string|null $view View/mapper to transform results (similar to DataGrid's view)
      * @param bool $countTotal Whether to count total records (expensive operation)
      */
     public function __construct(
-        public readonly string $entity,
-        public readonly ?string $schema = null,
-        public readonly mixed $mapper = null,
-        public readonly ?int $pageSize = null,
-        public readonly ?int $maxPageSize = null,
+        public readonly string $schema,
+        public readonly mixed $view = null,
         public readonly bool $countTotal = false,
     ) {}
 }

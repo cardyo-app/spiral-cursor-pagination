@@ -10,6 +10,7 @@ use Cardyo\Tests\SpiralCursorPagination\Fixtures;
 use Cardyo\Tests\SpiralCursorPagination\Integration\GridSchemas\CustomerGridSchema;
 use Cycle\Database\DatabaseManager;
 use Cycle\ORM\EntityManagerInterface;
+use Cycle\ORM\ORM;
 use Cycle\ORM\Schema;
 use Cycle\ORM\SchemaInterface;
 use DateTimeImmutable;
@@ -98,21 +99,21 @@ class CursorPaginationWithDataGridSortersTest extends AbstractTestCase
             return $schema;
         });
 
-        $controller = new class {
-            public function index(
-                #[CursorPaginate(
-                    entity: Fixtures\Entity\Customer::class,
-                    schema: CustomerGridSchema::class,
-                )]
-                Connection $connection
-            ): Connection {
-                return $connection;
+        $controller = new class($this->getContainer()->get(ORM::class)) {
+            public function __construct(private readonly ORM $orm) {}
+
+            #[CursorPaginate(schema: CustomerGridSchema::class)]
+            public function index(): \Cycle\ORM\Select
+            {
+                return $this->orm
+                    ->getRepository(Fixtures\Entity\Customer::class)
+                    ->select();
             }
         };
 
         $request = new ServerRequest(
             'GET',
-            "/customers?sort[activity]={$sortDirection}&first=3"
+            "/customers?sort[activity]={$sortDirection}&paginate[first]=3"
         );
 
         $connection = $this->executeController($controller, 'index', $request);
@@ -181,20 +182,20 @@ class CursorPaginationWithDataGridSortersTest extends AbstractTestCase
             return $schema;
         });
 
-        $controller = new class {
-            public function index(
-                #[CursorPaginate(
-                    entity: Fixtures\Entity\Customer::class,
-                    schema: CustomerGridSchema::class,
-                )]
-                Connection $connection
-            ): Connection {
-                return $connection;
+        $controller = new class($this->getContainer()->get(ORM::class)) {
+            public function __construct(private readonly ORM $orm) {}
+
+            #[CursorPaginate(schema: CustomerGridSchema::class)]
+            public function index(): \Cycle\ORM\Select
+            {
+                return $this->orm
+                    ->getRepository(Fixtures\Entity\Customer::class)
+                    ->select();
             }
         };
 
         // First page
-        $request = new ServerRequest('GET', '/customers?sort[logins]=desc&first=2');
+        $request = new ServerRequest('GET', '/customers?sort[logins]=desc&paginate[first]=2');
         $connection = $this->executeController($controller, 'index', $request);
 
         // Test Connection response
@@ -226,19 +227,19 @@ class CursorPaginationWithDataGridSortersTest extends AbstractTestCase
 
         $this->getContainer()->bindSingleton(TestCustomerGridSchemaWithFilter::class, fn() => $gridSchema);
 
-        $controller = new class {
-            public function index(
-                #[CursorPaginate(
-                    entity: Fixtures\Entity\Customer::class,
-                    schema: TestCustomerGridSchemaWithFilter::class,
-                )]
-                Connection $connection
-            ): Connection {
-                return $connection;
+        $controller = new class($this->getContainer()->get(ORM::class)) {
+            public function __construct(private readonly ORM $orm) {}
+
+            #[CursorPaginate(schema: TestCustomerGridSchemaWithFilter::class)]
+            public function index(): \Cycle\ORM\Select
+            {
+                return $this->orm
+                    ->getRepository(Fixtures\Entity\Customer::class)
+                    ->select();
             }
         };
 
-        $request = new ServerRequest('GET', '/customers?sort[activity]=desc&filter[minLogins]=1&first=10');
+        $request = new ServerRequest('GET', '/customers?sort[activity]=desc&filter[minLogins]=1&paginate[first]=10');
         $connection = $this->executeController($controller, 'index', $request);
 
         // Should get 4 results (customers with login_count >= 20)

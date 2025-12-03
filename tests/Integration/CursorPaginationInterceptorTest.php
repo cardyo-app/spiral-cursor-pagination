@@ -17,30 +17,12 @@ use Cycle\ORM\Schema;
 use Cycle\ORM\SchemaInterface;
 use Nyholm\Psr7\ServerRequest;
 use PHPUnit\Framework\Attributes\Test;
-use Spiral\Core\Core;
 use Spiral\DataGrid\GridSchema;
 use Spiral\DataGrid\Specification\Filter\Like;
 use Spiral\DataGrid\Specification\Sorter\Sorter;
 
 final class CursorPaginationInterceptorTest extends AbstractTestCase
 {
-    public function setUp(): void
-    {
-        parent::setUp();
-
-        $helper = new CursorPaginationHelper(
-            gridFactory: self::createGridFactory(),
-        );
-
-        $this->interceptor = new CursorPaginationInterceptor(
-            paginationHelper: $helper,
-            orm: $this->getContainer()->get(ORM::class),
-            request: new ServerRequest('GET', '/customers?first=3'),
-            container: $this->getContainer(),
-        );
-
-        $this->core = new Core($this->getContainer());
-    }
 
     #[\Override]
     protected function defineMigrations(DatabaseManager $dbal): void
@@ -66,21 +48,25 @@ final class CursorPaginationInterceptorTest extends AbstractTestCase
     {
         $this->seedTestCustomers();
 
-        $controller = new class {
-            public function index(
-                #[CursorPaginate(Fixtures\Entity\Customer::class)]
-                Connection $connection
-            ): Connection {
-                return $connection;
+        // Set up minimal GridSchema with paginator (no sorters - interceptor will add default PK sorter)
+        $gridSchema = new GridSchema();
+        $gridSchema->setPaginator($this->paginationHelper->createPaginator());
+        $this->getContainer()->bindSingleton(TestMinimalGridSchema::class, fn() => $gridSchema);
+
+        $controller = new class($this->getContainer()->get(ORM::class)) {
+            public function __construct(private readonly ORM $orm) {}
+
+            #[CursorPaginate(schema: TestMinimalGridSchema::class)]
+            public function index(): \Cycle\ORM\Select
+            {
+                return $this->orm
+                    ->getRepository(Fixtures\Entity\Customer::class)
+                    ->select();
             }
         };
 
-        $result = $this->interceptor->process(
-            $controller::class,
-            'index',
-            [],
-            $this->core,
-        );
+        $request = new ServerRequest('GET', '/customers?paginate[first]=3');
+        $result = $this->executeController($controller, 'index', $request);
 
         $this->assertInstanceOf(Connection::class, $result);
         $this->assertCount(3, $result->nodes);
@@ -104,32 +90,21 @@ final class CursorPaginationInterceptorTest extends AbstractTestCase
 
         $this->getContainer()->bindSingleton(TestCustomerGridSchema::class, fn() => $schema);
 
-        $controller = new class {
-            public function index(
-                #[CursorPaginate(
-                    entity: Fixtures\Entity\Customer::class,
-                    schema: TestCustomerGridSchema::class,
-                )]
-                Connection $connection
-            ): Connection {
-                return $connection;
+        $controller = new class($this->getContainer()->get(ORM::class)) {
+            public function __construct(private readonly ORM $orm) {}
+
+            #[CursorPaginate(schema: TestCustomerGridSchema::class)]
+            public function index(): \Cycle\ORM\Select
+            {
+                return $this->orm
+                    ->getRepository(Fixtures\Entity\Customer::class)
+                    ->select();
             }
         };
 
-        // Create interceptor with filter enabled and sort params
-        $interceptor = new CursorPaginationInterceptor(
-            paginationHelper: $helper,
-            orm: $this->getContainer()->get(ORM::class),
-            request: new ServerRequest('GET', '/customers?filter[search]=1&sort[name]=asc&first=10'),
-            container: $this->getContainer(),
-        );
-
-        $result = $interceptor->process(
-            $controller::class,
-            'index',
-            [],
-            $this->core,
-        );
+        // Execute with filter enabled and sort params
+        $request = new ServerRequest('GET', '/customers?filter[search]=1&sort[name]=asc&paginate[first]=10');
+        $result = $this->executeController($controller, 'index', $request);
 
         $this->assertInstanceOf(Connection::class, $result);
         $this->assertCount(1, $result->nodes);
@@ -137,19 +112,24 @@ final class CursorPaginationInterceptorTest extends AbstractTestCase
     }
 
     #[Test]
-    public function testInterceptorWithMapper(): void
+    public function testInterceptorWithView(): void
     {
         $this->seedTestCustomers();
 
-        $controller = new class {
-            public function index(
-                #[CursorPaginate(
-                    entity: Fixtures\Entity\Customer::class,
-                    mapper: [self::class, 'mapToDTO'],
-                )]
-                Connection $connection
-            ): Connection {
-                return $connection;
+        // Set up GridSchema with paginator (no sorters - interceptor will add default PK sorter)
+        $gridSchema = new GridSchema();
+        $gridSchema->setPaginator($this->paginationHelper->createPaginator());
+        $this->getContainer()->bindSingleton(TestViewMapperGridSchema::class, fn() => $gridSchema);
+
+        $controller = new class($this->getContainer()->get(ORM::class)) {
+            public function __construct(private readonly ORM $orm) {}
+
+            #[CursorPaginate(schema: TestViewMapperGridSchema::class, view: [self::class, 'mapToDTO'])]
+            public function index(): \Cycle\ORM\Select
+            {
+                return $this->orm
+                    ->getRepository(Fixtures\Entity\Customer::class)
+                    ->select();
             }
 
             public static function mapToDTO(Fixtures\Entity\Customer $customer): array
@@ -161,12 +141,8 @@ final class CursorPaginationInterceptorTest extends AbstractTestCase
             }
         };
 
-        $result = $this->interceptor->process(
-            $controller::class,
-            'index',
-            [],
-            $this->core,
-        );
+        $request = new ServerRequest('GET', '/customers?paginate[first]=3');
+        $result = $this->executeController($controller, 'index', $request);
 
         $this->assertInstanceOf(Connection::class, $result);
         $this->assertCount(3, $result->nodes);
@@ -179,35 +155,26 @@ final class CursorPaginationInterceptorTest extends AbstractTestCase
     {
         $this->seedTestCustomers();
 
-        $controller = new class {
-            public function index(
-                #[CursorPaginate(
-                    entity: Fixtures\Entity\Customer::class,
-                    pageSize: 2,
-                    maxPageSize: 50,
-                )]
-                Connection $connection
-            ): Connection {
-                return $connection;
+        // Set up GridSchema with custom page size (no sorters - interceptor will add default PK sorter)
+        $gridSchema = new GridSchema();
+        $gridSchema->setPaginator($this->paginationHelper->createPaginator(defaultLimit: 2, maxLimit: 50));
+        $this->getContainer()->bindSingleton(TestCustomPageSizeGridSchema::class, fn() => $gridSchema);
+
+        $controller = new class($this->getContainer()->get(ORM::class)) {
+            public function __construct(private readonly ORM $orm) {}
+
+            #[CursorPaginate(schema: TestCustomPageSizeGridSchema::class)]
+            public function index(): \Cycle\ORM\Select
+            {
+                return $this->orm
+                    ->getRepository(Fixtures\Entity\Customer::class)
+                    ->select();
             }
         };
 
-        // Request without explicit limit - should use default from attribute
-        $interceptor = new CursorPaginationInterceptor(
-            paginationHelper: new CursorPaginationHelper(
-                gridFactory: self::createGridFactory(),
-            ),
-            orm: $this->getContainer()->get(ORM::class),
-            request: new ServerRequest('GET', '/customers'),
-            container: $this->getContainer(),
-        );
-
-        $result = $interceptor->process(
-            $controller::class,
-            'index',
-            [],
-            $this->core,
-        );
+        // Request without explicit limit - should use default from GridSchema
+        $request = new ServerRequest('GET', '/customers');
+        $result = $this->executeController($controller, 'index', $request);
 
         $this->assertInstanceOf(Connection::class, $result);
         $this->assertCount(2, $result->nodes);
@@ -218,24 +185,20 @@ final class CursorPaginationInterceptorTest extends AbstractTestCase
     {
         $this->seedTestCustomers();
 
-        $controller = new class {
-            public function index(
-                #[CursorPaginate(
-                    entity: Fixtures\Entity\Customer::class,
-                    countTotal: true,
-                )]
-                Connection $connection
-            ): Connection {
-                return $connection;
+        $controller = new class($this->getContainer()->get(ORM::class)) {
+            public function __construct(private readonly ORM $orm) {}
+
+            #[CursorPaginate(countTotal: true)]
+            public function index(): \Cycle\ORM\Select
+            {
+                return $this->orm
+                    ->getRepository(Fixtures\Entity\Customer::class)
+                    ->select();
             }
         };
 
-        $result = $this->interceptor->process(
-            $controller::class,
-            'index',
-            [],
-            $this->core,
-        );
+        $request = new ServerRequest('GET', '/customers?paginate[first]=3');
+        $result = $this->executeController($controller, 'index', $request);
 
         $this->assertInstanceOf(Connection::class, $result);
         $this->assertEquals(5, $result->totalCount);
@@ -251,14 +214,52 @@ final class CursorPaginationInterceptorTest extends AbstractTestCase
             }
         };
 
-        $result = $this->interceptor->process(
-            $controller::class,
-            'index',
-            ['id' => '123'],
-            $this->core,
-        );
+        $request = new ServerRequest('GET', '/customers?paginate[first]=3');
+        $result = $this->executeController($controller, 'index', $request, ['id' => '123']);
 
         $this->assertEquals('id: 123', $result);
+    }
+
+    #[Test]
+    public function testInterceptorWithMethodAttributeAndSelectReturn(): void
+    {
+        $this->seedTestCustomers();
+
+        // Controller returns a customized Select query
+        $controller = new class($this->getContainer()->get(ORM::class)) {
+            public function __construct(private readonly ORM $orm) {}
+
+            #[CursorPaginate(schema: TestCustomerGridSchema::class)]
+            public function index(): \Cycle\ORM\Select
+            {
+                // Simulate tenant filtering or other custom query modifications
+                return $this->orm
+                    ->getRepository(Fixtures\Entity\Customer::class)
+                    ->select()
+                    ->where('login_count', '>=', 20); // Filter for customers with 20+ logins
+            }
+        };
+
+        // Register a GridSchema in the container
+        $schema = new GridSchema();
+        $schema->addSorter('name', new Sorter('name'));
+
+        $helper = new CursorPaginationHelper(
+            gridFactory: self::createGridFactory(),
+        );
+        $schema->setPaginator($helper->createPaginator());
+
+        $this->getContainer()->bindSingleton(TestCustomerGridSchema::class, fn() => $schema);
+
+        $request = new ServerRequest('GET', '/customers?sort[name]=asc&paginate[first]=10');
+        $result = $this->executeController($controller, 'index', $request);
+
+        $this->assertInstanceOf(Connection::class, $result);
+        // Should have customers 2, 3, 4, 5 (login_count >= 20: 20, 30, 40, 50)
+        $this->assertCount(4, $result->nodes);
+        foreach ($result->nodes as $customer) {
+            $this->assertGreaterThanOrEqual(20, $customer->loginCount);
+        }
     }
 
     private function seedTestCustomers(): void
@@ -311,3 +312,12 @@ final class CursorPaginationInterceptorTest extends AbstractTestCase
 
 // Dummy class for testing schema resolution
 class TestCustomerGridSchema extends GridSchema {}
+
+// GridSchema for minimal tests
+class TestMinimalGridSchema extends GridSchema {}
+
+// GridSchema for custom page size tests
+class TestCustomPageSizeGridSchema extends GridSchema {}
+
+// GridSchema for view mapper tests
+class TestViewMapperGridSchema extends GridSchema {}

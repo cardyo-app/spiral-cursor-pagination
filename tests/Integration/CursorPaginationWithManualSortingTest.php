@@ -10,6 +10,7 @@ use Cardyo\Tests\SpiralCursorPagination\Fixtures;
 use Cardyo\Tests\SpiralCursorPagination\Integration\GridSchemas\CustomerGridSchema;
 use Cycle\Database\DatabaseManager;
 use Cycle\ORM\EntityManagerInterface;
+use Cycle\ORM\ORM;
 use Cycle\ORM\Schema;
 use Cycle\ORM\SchemaInterface;
 use DateTimeImmutable;
@@ -94,21 +95,21 @@ class CursorPaginationWithManualSortingTest extends AbstractTestCase
             return $schema;
         });
 
-        $controller = new class {
-            public function index(
-                #[CursorPaginate(
-                    entity: Fixtures\Entity\Customer::class,
-                    schema: CustomerGridSchema::class,
-                )]
-                Connection $connection
-            ): Connection {
-                return $connection;
+        $controller = new class($this->getContainer()->get(ORM::class)) {
+            public function __construct(private readonly ORM $orm) {}
+
+            #[CursorPaginate(schema: CustomerGridSchema::class)]
+            public function index(): \Cycle\ORM\Select
+            {
+                return $this->orm
+                    ->getRepository(Fixtures\Entity\Customer::class)
+                    ->select();
             }
         };
 
         $request = new ServerRequest(
             'GET',
-            "/customers?sort[{$sortField}]={$sortDirection}&first=3"
+            "/customers?sort[{$sortField}]={$sortDirection}&paginate[first]=3"
         );
 
         $connection = $this->executeController($controller, 'index', $request);
@@ -169,20 +170,20 @@ class CursorPaginationWithManualSortingTest extends AbstractTestCase
             return $schema;
         });
 
-        $controller = new class {
-            public function index(
-                #[CursorPaginate(
-                    entity: Fixtures\Entity\Customer::class,
-                    schema: CustomerGridSchema::class,
-                )]
-                Connection $connection
-            ): Connection {
-                return $connection;
+        $controller = new class($this->getContainer()->get(ORM::class)) {
+            public function __construct(private readonly ORM $orm) {}
+
+            #[CursorPaginate(schema: CustomerGridSchema::class)]
+            public function index(): \Cycle\ORM\Select
+            {
+                return $this->orm
+                    ->getRepository(Fixtures\Entity\Customer::class)
+                    ->select();
             }
         };
 
         // First page
-        $request = new ServerRequest('GET', '/customers?sort[logins]=desc&first=3');
+        $request = new ServerRequest('GET', '/customers?sort[logins]=desc&paginate[first]=3');
         $firstPage = $this->executeController($controller, 'index', $request);
 
         $this->assertCount(3, $firstPage->nodes);
@@ -191,7 +192,7 @@ class CursorPaginationWithManualSortingTest extends AbstractTestCase
 
         // Second page using cursor
         $afterCursor = $firstPage->pageInfo->endCursor;
-        $request2 = new ServerRequest('GET', "/customers?sort[logins]=desc&first=2&after={$afterCursor}");
+        $request2 = new ServerRequest('GET', "/customers?sort[logins]=desc&paginate[first]=2&paginate[after]={$afterCursor}");
         $secondPage = $this->executeController($controller, 'index', $request2);
 
         $this->assertCount(2, $secondPage->nodes);
@@ -213,25 +214,25 @@ class CursorPaginationWithManualSortingTest extends AbstractTestCase
             return $schema;
         });
 
-        $controller = new class {
-            public function index(
-                #[CursorPaginate(
-                    entity: Fixtures\Entity\Customer::class,
-                    schema: CustomerGridSchema::class,
-                )]
-                Connection $connection
-            ): Connection {
-                return $connection;
+        $controller = new class($this->getContainer()->get(ORM::class)) {
+            public function __construct(private readonly ORM $orm) {}
+
+            #[CursorPaginate(schema: CustomerGridSchema::class)]
+            public function index(): \Cycle\ORM\Select
+            {
+                return $this->orm
+                    ->getRepository(Fixtures\Entity\Customer::class)
+                    ->select();
             }
         };
 
         // Get a cursor from middle of dataset
-        $request = new ServerRequest('GET', '/customers?sort[logins]=desc&first=3');
+        $request = new ServerRequest('GET', '/customers?sort[logins]=desc&paginate[first]=3');
         $firstPage = $this->executeController($controller, 'index', $request);
         $cursor = $firstPage->pageInfo->endCursor;
 
         // Go backwards from that cursor
-        $request2 = new ServerRequest('GET', "/customers?sort[logins]=desc&last=2&before={$cursor}");
+        $request2 = new ServerRequest('GET', "/customers?sort[logins]=desc&paginate[last]=2&paginate[before]={$cursor}");
         $backPage = $this->executeController($controller, 'index', $request2);
 
         $this->assertCount(2, $backPage->nodes);

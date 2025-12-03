@@ -71,17 +71,10 @@ final class CursorPaginationHelper
         $queryParams = $request->getQueryParams();
         $paginationInput = $this->extractPaginationInput($queryParams);
 
-        // Restructure query params for DataGrid - put pagination under 'paginate' namespace if not already
-        $gridInput = $queryParams;
-        if (!isset($gridInput['paginate']) && !empty($paginationInput)) {
-            $gridInput['paginate'] = $paginationInput;
-            // Remove direct pagination params to avoid confusion
-            unset($gridInput['first'], $gridInput['last'], $gridInput['after'], $gridInput['before']);
-        }
-
         // Create grid with all filters, sorters, and pagination
+        // Query params already have pagination under 'paginate' namespace
         $grid = $this->gridFactory
-            ->withInput(new ArrayInput($gridInput))
+            ->withInput(new ArrayInput($queryParams))
             ->create($query, $gridSchema);
 
         // Execute query and get results
@@ -133,7 +126,9 @@ final class CursorPaginationHelper
     /**
      * Extract pagination input from query parameters.
      *
-     * Supports both 'paginate' namespace and direct parameters.
+     * Only supports nested 'paginate' namespace (e.g., ?paginate[first]=10).
+     * This is consistent with Spiral DataGrid conventions where filters use
+     * ?filter[name]=value and sorts use ?sort[field]=dir.
      *
      * @param array<string, mixed> $queryParams
      * @return array{first?: int, last?: int, after?: string, before?: string}
@@ -157,22 +152,6 @@ final class CursorPaginationHelper
             }
             if (isset($paginate['before'])) {
                 $pagination['before'] = (string) $paginate['before'];
-            }
-        }
-
-        // Fallback to direct parameters (e.g., ?first=10&after=cursor)
-        if (empty($pagination)) {
-            if (isset($queryParams['first'])) {
-                $pagination['first'] = (int) $queryParams['first'];
-            }
-            if (isset($queryParams['last'])) {
-                $pagination['last'] = (int) $queryParams['last'];
-            }
-            if (isset($queryParams['after'])) {
-                $pagination['after'] = (string) $queryParams['after'];
-            }
-            if (isset($queryParams['before'])) {
-                $pagination['before'] = (string) $queryParams['before'];
             }
         }
 

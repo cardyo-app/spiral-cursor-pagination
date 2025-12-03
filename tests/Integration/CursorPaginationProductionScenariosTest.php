@@ -89,14 +89,16 @@ class CursorPaginationProductionScenariosTest extends AbstractTestCase
     #[Test]
     public function testUserDashboardScenario(): void
     {
-        $this->seedRealisticCustomerData();
+        // Capture base time BEFORE seeding to avoid race condition
+        $baseTime = new \DateTimeImmutable();
+        $this->seedRealisticCustomerData($baseTime);
 
         $select = new Select($this->getContainer()->get(ORM::class), Fixtures\Entity\Customer::class);
 
         $gridSchema = new GridSchema();
 
-        // Filter: only active users (logged in within last 30 days)
-        $thirtyDaysAgo = new \DateTimeImmutable('-30 days');
+        // Filter: only active users (logged in within last 30 days) - using same base time
+        $thirtyDaysAgo = $baseTime->modify('-30 days');
         $gridSchema->addFilter('recent', new Gte('last_activity_at', $thirtyDaysAgo->format('Y-m-d')));
 
         // Sort by most recent activity
@@ -128,7 +130,9 @@ class CursorPaginationProductionScenariosTest extends AbstractTestCase
         );
 
         // Verify results are filtered and sorted correctly
+        // Should get 9 customers within 30-day window (excluding Jack Anderson at 40 days)
         $this->assertGreaterThan(0, count($connection->nodes));
+        $this->assertLessThanOrEqual(10, count($connection->nodes)); // First page limit
 
         foreach ($connection->nodes as $node) {
             $this->assertGreaterThanOrEqual(
@@ -408,15 +412,17 @@ class CursorPaginationProductionScenariosTest extends AbstractTestCase
     #[Test]
     public function testDateRangeFilteringWithPagination(): void
     {
-        $this->seedRealisticCustomerData();
+        // Capture base time BEFORE seeding to avoid race condition
+        $baseTime = new \DateTimeImmutable();
+        $this->seedRealisticCustomerData($baseTime);
 
         $select = new Select($this->getContainer()->get(ORM::class), Fixtures\Entity\Customer::class);
 
         $gridSchema = new GridSchema();
 
-        // Date range filter: last 7 days
-        $sevenDaysAgo = new \DateTimeImmutable('-7 days');
-        $today = new \DateTimeImmutable();
+        // Date range filter: last 7 days (using same base time)
+        $sevenDaysAgo = $baseTime->modify('-7 days');
+        $today = $baseTime;
 
         $gridSchema->addFilter('start', new Gte('created_at', $sevenDaysAgo->format('Y-m-d')));
         $gridSchema->addFilter('end', new Lte('created_at', $today->format('Y-m-d')));
@@ -530,11 +536,11 @@ class CursorPaginationProductionScenariosTest extends AbstractTestCase
         );
     }
 
-    private function seedRealisticCustomerData(): void
+    private function seedRealisticCustomerData(?\DateTimeImmutable $baseTime = null): void
     {
         $em = $this->getContainer()->get(EntityManagerInterface::class);
 
-        $now = new \DateTimeImmutable();
+        $now = $baseTime ?? new \DateTimeImmutable();
 
         $customers = [
             ['name' => 'Alice Johnson', 'days_ago' => 1, 'logins' => 50],
@@ -545,8 +551,8 @@ class CursorPaginationProductionScenariosTest extends AbstractTestCase
             ['name' => 'Frank Miller', 'days_ago' => 15, 'logins' => 25],
             ['name' => 'Grace Wilson', 'days_ago' => 20, 'logins' => 20],
             ['name' => 'Henry Moore', 'days_ago' => 25, 'logins' => 15],
-            ['name' => 'Ivy Taylor', 'days_ago' => 30, 'logins' => 10],
-            ['name' => 'Jack Anderson', 'days_ago' => 40, 'logins' => 5],
+            ['name' => 'Ivy Taylor', 'days_ago' => 29, 'logins' => 10],  // Changed from 30 to 29 to avoid boundary flakiness
+            ['name' => 'Jack Anderson', 'days_ago' => 40, 'logins' => 5],  // Outside 30-day window
         ];
 
         foreach ($customers as $i => $data) {

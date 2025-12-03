@@ -9,6 +9,7 @@ use Cardyo\SpiralCursorPagination\Response\Connection;
 use Cardyo\Tests\SpiralCursorPagination\Fixtures;
 use Cycle\Database\DatabaseManager;
 use Cycle\ORM\EntityManagerInterface;
+use Cycle\ORM\ORM;
 use Cycle\ORM\Schema;
 use Cycle\ORM\SchemaInterface;
 use Nyholm\Psr7\ServerRequest;
@@ -72,15 +73,21 @@ class WithoutIncrementalIdentifierTest extends AbstractTestCase
     {
         $this->seedCustomers($this->buildUuidCustomers());
 
-        $controller = new class {
-            public function index(
-                #[CursorPaginate(
-                    entity: Fixtures\Entity\Customer::class,
-                    pageSize: 5,
-                )]
-                Connection $connection
-            ): Connection {
-                return $connection;
+        // Set up GridSchema with paginator (no sorters - interceptor will add default PK sorter)
+        $gridSchema = new \Spiral\DataGrid\GridSchema();
+        $gridSchema->setPaginator($this->paginationHelper->createPaginator(defaultLimit: 5));
+        $this->getContainer()->bindSingleton(TestUuidGridSchema::class, fn() => $gridSchema);
+
+        $orm = $this->getContainer()->get(ORM::class);
+        $controller = new class($orm) {
+            public function __construct(private readonly ORM $orm) {}
+
+            #[CursorPaginate(schema: TestUuidGridSchema::class)]
+            public function index(): \Cycle\ORM\Select
+            {
+                return $this->orm
+                    ->getRepository(Fixtures\Entity\Customer::class)
+                    ->select();
             }
         };
 
@@ -125,3 +132,6 @@ class WithoutIncrementalIdentifierTest extends AbstractTestCase
         $em->run();
     }
 }
+
+// GridSchema for UUID pagination tests
+class TestUuidGridSchema extends \Spiral\DataGrid\GridSchema {}

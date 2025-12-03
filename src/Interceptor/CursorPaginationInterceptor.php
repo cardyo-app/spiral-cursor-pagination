@@ -12,151 +12,212 @@ use Cycle\ORM\Select;
 use Psr\Container\ContainerInterface;
 use Psr\Http\Message\ServerRequestInterface;
 use ReflectionParameter;
-use Spiral\Core\CoreInterceptorInterface;
-use Spiral\Core\CoreInterface;
 use Spiral\DataGrid\GridSchema;
+use Spiral\Interceptors\Context\CallContextInterface;
+use Spiral\Interceptors\HandlerInterface;
+use Spiral\Interceptors\InterceptorInterface;
 
 /**
  * Interceptor for automatic cursor pagination in controller methods.
  *
- * Detects #[CursorPaginate] attribute on controller parameters and automatically
- * injects a Connection response with paginated data.
+ * Similar to GridInterceptor, this intercepts controller methods that return Select queries
+ * and automatically applies cursor pagination based on the #[CursorPaginate] attribute.
  *
- * Example controller:
+ * Usage:
  * ```php
- * class CustomerController
- * {
- *     public function index(
- *         #[CursorPaginate(
- *             entity: Customer::class,
- *             schema: CustomerGridSchema::class,
- *             mapper: [CustomerDTO::class, 'fromEntity']
- *         )]
- *         Connection $connection
- *     ): Connection {
- *         return $connection;
- *     }
+ * #[CursorPaginate(
+ *     schema: CustomerGridSchema::class,
+ *     view: [CustomerDTO::class, 'fromEntity'],
+ *     countTotal: true
+ * )]
+ * public function index(TenantUserInterface $user): Select {
+ *     return $this->customers
+ *         ->forTenant($user->getTenantId())
+ *         ->select();
  * }
  * ```
+ *
+ * The interceptor will:
+ * 1. Execute the controller to get the Select query
+ * 2. Apply the GridSchema filters/sorting from the request
+ * 3. Apply cursor pagination
+ * 4. Optionally map results through a view/mapper
+ * 5. Return a Connection with paginated results
  */
-final class CursorPaginationInterceptor implements CoreInterceptorInterface
+final class CursorPaginationInterceptor implements InterceptorInterface
 {
+    private array $cache = [];
+
     public function __construct(
         private readonly CursorPaginationHelper $paginationHelper,
-        private readonly ORMInterface $orm,
         private readonly ServerRequestInterface $request,
         private readonly ContainerInterface $container,
     ) {}
 
-    public function process(string $controller, string $action, array $parameters, CoreInterface $core): mixed
+    public function intercept(CallContextInterface $context, HandlerInterface $handler): mixed
     {
-        $reflection = new \ReflectionMethod($controller, $action);
+        $reflection = $context->getTarget()->getReflection();
 
-        foreach ($reflection->getParameters() as $parameter) {
-            $attributes = $parameter->getAttributes(CursorPaginate::class);
-
-            if (empty($attributes)) {
-                continue;
-            }
-
-            /** @var CursorPaginate $attribute */
-            $attribute = $attributes[0]->newInstance();
-
-            // Create the Connection and inject it
-            $connection = $this->createConnection($attribute, $parameter);
-            $parameters[$parameter->getName()] = $connection;
+        if (!$reflection instanceof \ReflectionMethod) {
+            return $handler->handle($context);
         }
 
-        return $core->callAction($controller, $action, $parameters);
+        // Execute controller first to get the Select query
+        $result = $handler->handle($context);
+
+        // Only process if result is a Select query
+        if (!$result instanceof Select) {
+            return $result;
+        }
+
+        // Get pagination configuration from method attribute
+        $config = $this->getConfig($reflection);
+        if ($config === null) {
+            return $result;
+        }
+
+        // Apply cursor pagination
+        $connection = $this->createConnectionFromSelect($result, $config);
+
+        // Apply view mapper if provided
+        if ($config['view'] !== null) {
+            $connection = $connection->withMapper($config['view']);
+        }
+
+        return $connection;
     }
 
-    private function createConnection(CursorPaginate $attribute, ReflectionParameter $parameter): Connection
+    /**
+     * Get cached configuration for the method.
+     */
+    private function getConfig(\ReflectionMethod $method): ?array
     {
-        // Get base query from repository
-        $select = $this->orm->getRepository($attribute->entity)->select();
+        $key = sprintf('%s::%s', $method->getDeclaringClass()->getName(), $method->getName());
 
-        // Resolve GridSchema and apply default sorting if needed
-        [$gridSchema, $select] = $this->resolveGridSchemaAndApplyDefaultSort($attribute, $select);
+        if (array_key_exists($key, $this->cache)) {
+            return $this->cache[$key];
+        }
 
-        // Resolve mapper
-        $mapper = $this->resolveMapper($attribute);
+        $this->cache[$key] = null;
+
+        $attributes = $method->getAttributes(CursorPaginate::class);
+        if (empty($attributes)) {
+            return null;
+        }
+
+        /** @var CursorPaginate $attribute */
+        $attribute = $attributes[0]->newInstance();
+
+        return $this->cache[$key] = $this->makeConfig($attribute);
+    }
+
+    /**
+     * Create configuration array from attribute.
+     */
+    private function makeConfig(CursorPaginate $attribute): array
+    {
+        $config = [
+            'schema' => $this->container->get($attribute->schema),
+            'view' => $attribute->view,
+            'countTotal' => $attribute->countTotal,
+        ];
+
+        // Resolve view/mapper
+        if (is_string($config['view']) && $this->container->has($config['view'])) {
+            $config['view'] = $this->container->get($config['view']);
+        }
+
+        return $config;
+    }
+
+    /**
+     * Create Connection from a Select query returned by controller.
+     */
+    private function createConnectionFromSelect(Select $select, array $config): Connection
+    {
+        // GridSchema is required
+        if ($config['schema'] === null) {
+            throw new \RuntimeException(
+                'GridSchema is required for cursor pagination. ' .
+                'Add schema parameter to #[CursorPaginate] attribute or ensure GridSchema is configured.'
+            );
+        }
+
+        $gridSchema = $config['schema'];
+
+        // Validate that GridSchema has a cursor paginator
+        $paginator = $gridSchema->getPaginator();
+        if ($paginator === null) {
+            throw new \RuntimeException(
+                'GridSchema must have a cursor paginator configured. ' .
+                'Use $gridSchema->setPaginator($paginationHelper->createPaginator()) in your GridSchema.'
+            );
+        }
+
+        // Validate it's a cursor paginator (not offset-based)
+        if (!$paginator instanceof \Cardyo\SpiralCursorPagination\Specification\Pagination\CursorPaginator) {
+            throw new \RuntimeException(
+                'GridSchema must use CursorPaginator, not ' . get_class($paginator) . '. ' .
+                'Configure your GridSchema with: $gridSchema->setPaginator($paginationHelper->createPaginator())'
+            );
+        }
+
+        // Ensure we have at least a default ORDER BY for stable cursor pagination
+        // If GridSchema has no sorters, add PK sorter and inject sort parameter
+        $request = $this->request;
+        if (empty($gridSchema->getSorters())) {
+            $primaryKey = $this->getPrimaryKey($select);
+            if ($primaryKey !== null) {
+                // Add PK sorter to GridSchema
+                $gridSchema->addSorter($primaryKey, new \Spiral\DataGrid\Specification\Sorter\Sorter($primaryKey));
+
+                // Inject sort parameter into request to activate the PK sorter
+                $queryParams = $request->getQueryParams();
+                if (!isset($queryParams['sort'])) {
+                    $queryParams['sort'] = [$primaryKey => 'ASC'];
+                    $request = $request->withQueryParams($queryParams);
+                }
+            }
+        }
 
         // Count total if requested
         $totalCount = null;
-        if ($attribute->countTotal) {
+        if ($config['countTotal']) {
             $totalCount = (clone $select)->count();
         }
 
-        // Use helper to paginate
+        // Use helper to paginate (without mapper - will be applied after)
         return $this->paginationHelper->paginate(
             query: $select,
-            request: $this->request,
+            request: $request,
             gridSchema: $gridSchema,
-            mapper: $mapper,
+            mapper: null,
             totalCount: $totalCount,
         );
     }
 
     /**
-     * Resolve GridSchema and apply default sorting if needed.
-     *
-     * @return array{GridSchema, Select}
+     * Get primary key from Select query.
      */
-    private function resolveGridSchemaAndApplyDefaultSort(CursorPaginate $attribute, Select $select): array
+    private function getPrimaryKey(Select $select): ?string
     {
-        // If schema class is explicitly provided, instantiate it
-        if ($attribute->schema !== null) {
-            return [$this->container->get($attribute->schema), $select];
-        }
+        try {
+            $orm = $select->getBuilder()->getLoader()->getOrm();
+            $role = $select->getBuilder()->getLoader()->getTarget();
+            $schema = $orm->getSchema();
 
-        // Try to auto-detect schema by naming convention
-        // e.g., Customer -> CustomerGridSchema
-        $entityClass = $attribute->entity;
-        $schemaClass = $entityClass . 'GridSchema';
+            $primaryKey = $schema->define($role, \Cycle\ORM\SchemaInterface::PRIMARY_KEY);
 
-        if (class_exists($schemaClass)) {
-            return [$this->container->get($schemaClass), $select];
-        }
+            if (is_string($primaryKey)) {
+                return $primaryKey;
+            }
 
-        // Fallback: create a minimal GridSchema with default sorting and pagination
-        // Use the primary key from the schema for stable ordering
-        $schema = $this->orm->getSchema();
-        $primaryKey = $schema->define($attribute->entity, \Cycle\ORM\SchemaInterface::PRIMARY_KEY);
-
-        // Apply default ORDER BY on primary key to ensure stable ordering
-        $select = $select->orderBy($primaryKey, 'ASC');
-
-        $gridSchema = new GridSchema();
-        $gridSchema->setPaginator(
-            $this->paginationHelper->createPaginator(
-                $attribute->pageSize,
-                $attribute->maxPageSize,
-            )
-        );
-
-        return [$gridSchema, $select];
-    }
-
-    private function resolveMapper(CursorPaginate $attribute): ?callable
-    {
-        if ($attribute->mapper === null) {
-            return null;
-        }
-
-        // If it's already callable, return as-is
-        if (is_callable($attribute->mapper)) {
-            return $attribute->mapper;
-        }
-
-        // If it's an array like [ClassName::class, 'method']
-        if (is_array($attribute->mapper)) {
-            return $attribute->mapper;
-        }
-
-        // If it's a string like 'ClassName::method'
-        if (is_string($attribute->mapper) && str_contains($attribute->mapper, '::')) {
-            [$class, $method] = explode('::', $attribute->mapper, 2);
-            return [$class, $method];
+            // Composite primary key - use first field
+            if (is_array($primaryKey) && !empty($primaryKey)) {
+                return $primaryKey[0];
+            }
+        } catch (\Throwable $e) {
+            // Can't determine primary key
         }
 
         return null;

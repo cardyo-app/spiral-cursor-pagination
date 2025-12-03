@@ -18,18 +18,19 @@ use Cycle\ORM\ORMInterface;
 use Cycle\ORM\Schema;
 use Cycle\ORM\SchemaInterface;
 use Psr\Http\Message\ServerRequestInterface;
-use Spiral\Core\Core;
 use Spiral\Cycle\DataGrid\Writer\QueryWriter;
 use Spiral\DataGrid\Compiler;
 use Spiral\DataGrid\GridFactory;
 use Spiral\DataGrid\GridFactoryInterface;
+use Spiral\Interceptors\Context\CallContext;
+use Spiral\Interceptors\Context\Target;
+use Spiral\Interceptors\Handler\CallableHandler;
 use Spiral\Testing\TestCase as SpiralTestCase;
 use Spiral\Cycle\Bootloader as CycleBridge;
 
 abstract class AbstractTestCase extends SpiralTestCase
 {
     protected CursorPaginationInterceptor $interceptor;
-    protected Core $core;
     protected CursorPaginationHelper $paginationHelper;
 
     public function setUp(): void
@@ -78,8 +79,6 @@ abstract class AbstractTestCase extends SpiralTestCase
         $this->paginationHelper = new CursorPaginationHelper(
             gridFactory: self::createGridFactory(),
         );
-
-        $this->core = new Core($this->getContainer());
     }
 
     /**
@@ -90,7 +89,6 @@ abstract class AbstractTestCase extends SpiralTestCase
     {
         return new CursorPaginationInterceptor(
             paginationHelper: $this->paginationHelper,
-            orm: $this->getContainer()->get(ORM::class),
             request: $request,
             container: $this->getContainer(),
         );
@@ -103,7 +101,19 @@ abstract class AbstractTestCase extends SpiralTestCase
     protected function executeController(object $controller, string $method, ServerRequestInterface $request, array $parameters = []): mixed
     {
         $interceptor = $this->createInterceptor($request);
-        return $interceptor->process($controller::class, $method, $parameters, $this->core);
+
+        // Create reflection and target
+        $reflection = new \ReflectionMethod($controller, $method);
+        $target = Target::fromReflectionMethod($reflection, $controller);
+
+        // Create call context
+        $context = new CallContext($target, $parameters);
+
+        // Create handler that will call the controller method
+        $handler = new CallableHandler();
+
+        // Execute through interceptor
+        return $interceptor->intercept($context, $handler);
     }
 
     abstract protected function defineSchema(): SchemaInterface;
@@ -155,6 +165,7 @@ abstract class AbstractTestCase extends SpiralTestCase
         $compiler = new Compiler();
 
         $compiler->addWriter(new QueryWriter());
+        $compiler->addWriter(new \Cardyo\SpiralCursorPagination\Writer\Cycle\PrimaryKeyTiebreakerWriter());
         $compiler->addWriter(new \Cardyo\SpiralCursorPagination\Writer\Cycle\KeysetFilterWriter());
         $compiler->addWriter(new \Cardyo\SpiralCursorPagination\Writer\Cycle\CursorLimitWriter());
         $compiler->addWriter(new \Cardyo\SpiralCursorPagination\Writer\Cycle\SortDirectionWriter());

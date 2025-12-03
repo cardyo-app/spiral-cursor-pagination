@@ -63,16 +63,14 @@ final class KeysetFilterWriter implements WriterInterface
             }
         }
 
-        // Determine operator based on pagination direction AND sort direction
-        $operator = $this->determineOperator($source, $fields[0], $specification->isForward());
-
         if (count($fields) === 1) {
             $field = $fields[0];
+            $operator = $this->determineOperator($source, $field, $specification->isForward());
             $value = $this->convertCursorValue($cursorData->get($field));
             return $source->where($field, $operator, $value);
         }
 
-        return $this->buildTupleComparison($source, $fields, $cursorData, $operator);
+        return $this->buildTupleComparison($source, $fields, $cursorData, $specification->isForward());
     }
 
     /**
@@ -161,6 +159,9 @@ final class KeysetFilterWriter implements WriterInterface
      * Expands (f1, f2, f3) > (v1, v2, v3) into:
      * f1 > v1 OR (f1 = v1 AND f2 > v2) OR (f1 = v1 AND f2 = v2 AND f3 > v3)
      *
+     * Each field respects its own sort direction (ASC/DESC) when determining
+     * the comparison operator.
+     *
      * @param array<string> $fields
      *
      * @psalm-suppress UndefinedClass
@@ -169,17 +170,20 @@ final class KeysetFilterWriter implements WriterInterface
         Select $select,
         array $fields,
         CursorData $data,
-        string $operator,
+        bool $isForward,
     ): Select {
-        return $select->where(function (QueryBuilder $query) use ($fields, $data, $operator): void {
+        return $select->where(function (QueryBuilder $query) use ($select, $fields, $data, $isForward): void {
             $counter = count($fields);
             for ($i = 0; $i < $counter; ++$i) {
-                $query->orWhere(function (QueryBuilder $subQuery) use ($fields, $data, $operator, $i): void {
+                $query->orWhere(function (QueryBuilder $subQuery) use ($select, $fields, $data, $isForward, $i): void {
+                    // Add equality conditions for all previous fields
                     for ($j = 0; $j < $i; ++$j) {
                         $value = $this->convertCursorValue($data->get($fields[$j]));
                         $subQuery->where($fields[$j], '=', $value);
                     }
 
+                    // Add comparison condition for current field with its own operator
+                    $operator = $this->determineOperator($select, $fields[$i], $isForward);
                     $value = $this->convertCursorValue($data->get($fields[$i]));
                     $subQuery->where($fields[$i], $operator, $value);
                 });

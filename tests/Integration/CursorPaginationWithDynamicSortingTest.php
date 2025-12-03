@@ -4,44 +4,28 @@ declare(strict_types=1);
 
 namespace Cardyo\Tests\SpiralCursorPagination\Integration;
 
-use Cardyo\SpiralCursorPagination\CursorEncoder\CursorCoder;
-use Cardyo\SpiralCursorPagination\Service\ConnectionFactory;
-use Cardyo\SpiralCursorPagination\Service\CursorGenerator;
-use Cardyo\SpiralCursorPagination\Service\PaginationMetadataCalculator;
-use Cardyo\SpiralCursorPagination\Specification\Pagination\CursorPaginator;
+use Cardyo\SpiralCursorPagination\Attribute\CursorPaginate;
+use Cardyo\SpiralCursorPagination\Response\Connection;
 use Cardyo\Tests\SpiralCursorPagination\Fixtures;
-use Cycle\Database\DatabaseProviderInterface;
+use Cardyo\Tests\SpiralCursorPagination\Integration\GridSchemas\CustomerGridSchema;
+use Cycle\Database\DatabaseManager;
 use Cycle\ORM\EntityManagerInterface;
-use Cycle\ORM\ORM;
 use Cycle\ORM\Schema;
 use Cycle\ORM\SchemaInterface;
-use Cycle\ORM\Select;
 use DateTimeImmutable;
+use Nyholm\Psr7\ServerRequest;
 use PHPUnit\Framework\Attributes\Test;
-use Spiral\DataGrid\GridSchema;
-use Spiral\DataGrid\Specification\Sorter\Sorter;
-use Spiral\DataGrid\Specification\Value\IntValue;
-use Spiral\DataGrid\Specification\Value\RangeValue;
-use Spiral\DataGrid\Specification\Value\RangeValue\Boundary;
 
 /**
- * Test cursor pagination with dynamic sorting (sort fields not known at schema construction).
+ * Test cursor pagination with dynamic sorting using the interceptor pattern.
  *
- * This demonstrates the pattern where:
+ * This demonstrates the production pattern where:
  * 1. GridSchema is constructed once (like in a service/grid class)
  * 2. Sort parameters come from user input at runtime
  * 3. Cursor pagination automatically detects sort fields from the compiled query
  */
 class CursorPaginationWithDynamicSortingTest extends AbstractTestCase
 {
-    #[\Override]
-    public function setUp(): void
-    {
-        parent::setUp();
-        $this->defineSchema();
-        $this->setUpDatabase();
-    }
-
     #[\Override]
     protected function defineSchema(): SchemaInterface
     {
@@ -72,13 +56,10 @@ class CursorPaginationWithDynamicSortingTest extends AbstractTestCase
         ]);
     }
 
-    private function setUpDatabase(): void
+    #[\Override]
+    protected function defineMigrations(DatabaseManager $dbal): void
     {
-        $schema = $this->getContainer()
-            ->get(DatabaseProviderInterface::class)
-            ->database()
-            ->table('customers')
-            ->getSchema();
+        $schema = $dbal->database()->table('customers')->getSchema();
 
         $schema->uuid('uuid');
         $schema->string('name');
@@ -96,7 +77,7 @@ class CursorPaginationWithDynamicSortingTest extends AbstractTestCase
     }
 
     /**
-     * Test that cursor pagination works WITHOUT calling withSortFields()
+     * Test that cursor pagination works WITHOUT manually specifying sort fields.
      *
      * This simulates the production pattern where the GridSchema is constructed
      * once (e.g., in CustomerGrid constructor) without knowing what sort parameters
@@ -107,38 +88,31 @@ class CursorPaginationWithDynamicSortingTest extends AbstractTestCase
     {
         $this->seedTestCustomers();
 
-        $select = new Select($this->getContainer()->get(ORM::class), Fixtures\Entity\Customer::class);
+        // Register GridSchema - notice sort params aren't known yet
+        $this->getContainer()->bindSingleton(CustomerGridSchema::class, function() {
+            $schema = new CustomerGridSchema();
+            $schema->setPaginator($this->paginationHelper->createPaginator(3));
+            return $schema;
+        });
 
-        // Create grid schema like in production (e.g., CustomerGrid constructor)
-        // Notice: NO withSortFields() call here because sort params aren't known yet
-        $gridSchema = new GridSchema();
-        $gridSchema->addSorter('activity', new Sorter('last_activity_at'));
-        $paginator = $this->createPaginator(3);
-        $gridSchema->setPaginator($paginator);
+        $controller = new class {
+            public function index(
+                #[CursorPaginate(
+                    entity: Fixtures\Entity\Customer::class,
+                    schema: CustomerGridSchema::class,
+                )]
+                Connection $connection
+            ): Connection {
+                return $connection;
+            }
+        };
 
-        // User requests with specific sort direction
-        $grid = self::createGridFactory()
-            ->withInput(new \Spiral\DataGrid\Input\ArrayInput([
-                'sort' => ['activity' => 'desc'],
-                'paginate' => ['first' => 3],
-            ]))
-            ->create($select, $gridSchema);
-
-        $results = iterator_to_array($grid->getIterator());
-
-        // Create Connection response
-        $connectionFactory = new ConnectionFactory(
-            new CursorGenerator(),
-            new PaginationMetadataCalculator(),
-        );
-        $connection = $connectionFactory->createConnection(
-            results: $results,
-            query: $grid->getSource(),
-            paginatorState: $gridSchema->getPaginator()->getValue(),
-            encoder: new CursorCoder(),
-        );
+        // User requests with specific sort direction at runtime
+        $request = new ServerRequest('GET', '/customers?sort[activity]=desc&first=3');
+        $connection = $this->executeController($controller, 'index', $request);
 
         // Test the actual Connection response
+        $this->assertInstanceOf(Connection::class, $connection);
         $this->assertCount(3, $connection->nodes);
         $this->assertCount(3, $connection->edges);
 
@@ -168,36 +142,30 @@ class CursorPaginationWithDynamicSortingTest extends AbstractTestCase
     {
         $this->seedTestCustomers();
 
-        $select = new Select($this->getContainer()->get(ORM::class), Fixtures\Entity\Customer::class);
+        $this->getContainer()->bindSingleton(CustomerGridSchema::class, function() {
+            $schema = new CustomerGridSchema();
+            $schema->setPaginator($this->paginationHelper->createPaginator(2));
+            return $schema;
+        });
 
-        // Grid schema without sort field configuration
-        $gridSchema = new GridSchema();
-        $gridSchema->addSorter('logins', new Sorter('login_count'));
-        $gridSchema->setPaginator($this->createPaginator(2));
+        $controller = new class {
+            public function index(
+                #[CursorPaginate(
+                    entity: Fixtures\Entity\Customer::class,
+                    schema: CustomerGridSchema::class,
+                )]
+                Connection $connection
+            ): Connection {
+                return $connection;
+            }
+        };
 
         // First page
-        $grid = self::createGridFactory()
-            ->withInput(new \Spiral\DataGrid\Input\ArrayInput([
-                'sort' => ['logins' => 'desc'],
-                'paginate' => ['first' => 2],
-            ]))
-            ->create($select, $gridSchema);
-
-        $results = iterator_to_array($grid->getIterator());
-
-        // Create Connection response
-        $connectionFactory = new ConnectionFactory(
-            new CursorGenerator(),
-            new PaginationMetadataCalculator(),
-        );
-        $connection = $connectionFactory->createConnection(
-            results: $results,
-            query: $grid->getSource(),
-            paginatorState: $gridSchema->getPaginator()->getValue(),
-            encoder: new CursorCoder(),
-        );
+        $request = new ServerRequest('GET', '/customers?sort[logins]=desc&first=2');
+        $connection = $this->executeController($controller, 'index', $request);
 
         // Test Connection has correct data
+        $this->assertInstanceOf(Connection::class, $connection);
         $this->assertCount(2, $connection->nodes);
         $this->assertEquals(50, $connection->nodes[0]->loginCount);
         $this->assertEquals(40, $connection->nodes[1]->loginCount);
@@ -215,59 +183,46 @@ class CursorPaginationWithDynamicSortingTest extends AbstractTestCase
     {
         $this->seedTestCustomers();
 
-        $select = new Select($this->getContainer()->get(ORM::class), Fixtures\Entity\Customer::class);
-        $connectionFactory = new ConnectionFactory(
-            new CursorGenerator(),
-            new PaginationMetadataCalculator(),
-        );
-
         // Grid schema offers multiple sort options
-        $gridSchema = new GridSchema();
-        $gridSchema->addSorter('activity', new Sorter('last_activity_at'));
-        $gridSchema->addSorter('logins', new Sorter('login_count'));
-        $gridSchema->setPaginator($this->createPaginator(3));
+        $this->getContainer()->bindSingleton(CustomerGridSchema::class, function() {
+            $schema = new CustomerGridSchema();
+            $schema->setPaginator($this->paginationHelper->createPaginator(3));
+            return $schema;
+        });
+
+        $controller = new class {
+            public function index(
+                #[CursorPaginate(
+                    entity: Fixtures\Entity\Customer::class,
+                    schema: CustomerGridSchema::class,
+                )]
+                Connection $connection
+            ): Connection {
+                return $connection;
+            }
+        };
 
         // User chooses to sort by activity
-        $grid1 = self::createGridFactory()
-            ->withInput(new \Spiral\DataGrid\Input\ArrayInput([
-                'sort' => ['activity' => 'desc'],
-                'paginate' => ['first' => 3],
-            ]))
-            ->create($select, $gridSchema);
+        $request1 = new ServerRequest('GET', '/customers?sort[activity]=desc&first=3');
+        $connection1 = $this->executeController($controller, 'index', $request1);
 
-        $results1 = iterator_to_array($grid1->getIterator());
-        $connection1 = $connectionFactory->createConnection(
-            results: $results1,
-            query: $grid1->getSource(),
-            paginatorState: $gridSchema->getPaginator()->getValue(),
-            encoder: new CursorCoder(),
-        );
-
+        $this->assertInstanceOf(Connection::class, $connection1);
         $this->assertEquals('Customer 5', $connection1->nodes[0]->name); // Latest activity
         $this->assertCount(3, $connection1->nodes);
 
         // User chooses to sort by logins
-        $grid2 = self::createGridFactory()
-            ->withInput(new \Spiral\DataGrid\Input\ArrayInput([
-                'sort' => ['logins' => 'desc'],
-                'paginate' => ['first' => 3],
-            ]))
-            ->create($select, $gridSchema);
+        $request2 = new ServerRequest('GET', '/customers?sort[logins]=desc&first=3');
+        $connection2 = $this->executeController($controller, 'index', $request2);
 
-        $results2 = iterator_to_array($grid2->getIterator());
-        $connection2 = $connectionFactory->createConnection(
-            results: $results2,
-            query: $grid2->getSource(),
-            paginatorState: $gridSchema->getPaginator()->getValue(),
-            encoder: new CursorCoder(),
-        );
-
+        $this->assertInstanceOf(Connection::class, $connection2);
         $this->assertEquals(50, $connection2->nodes[0]->loginCount); // Most logins
         $this->assertCount(3, $connection2->nodes);
     }
 
-    private function seedTestCustomers(): array
+    private function seedTestCustomers(): void
     {
+        $em = $this->getContainer()->get(EntityManagerInterface::class);
+
         $customers = [
             new Fixtures\Entity\Customer(
                 uuid: '00000000-0000-0000-0000-000000000001',
@@ -312,39 +267,9 @@ class CursorPaginationWithDynamicSortingTest extends AbstractTestCase
         ];
 
         foreach ($customers as $customer) {
-            $this->persist($customer);
+            $em->persist($customer);
         }
 
-        $this->flush();
-
-        return $customers;
-    }
-
-    private function createPaginator(int $limit): CursorPaginator
-    {
-        return new CursorPaginator(
-            defaultLimit: $limit,
-            limitValue: new RangeValue(
-                new IntValue(),
-                Boundary::including(1),
-                Boundary::including(100),
-            ),
-            cursorCoder: new CursorCoder(),
-        );
-    }
-
-    public function getEntityManager(): EntityManagerInterface
-    {
-        return $this->getContainer()->get(EntityManagerInterface::class);
-    }
-
-    public function persist(object $entity): void
-    {
-        $this->getEntityManager()->persist($entity);
-    }
-
-    public function flush(): void
-    {
-        $this->getEntityManager()->run();
+        $em->run();
     }
 }

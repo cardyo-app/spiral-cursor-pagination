@@ -8,7 +8,9 @@ use Cardyo\SpiralCursorPagination\CursorEncoder\CursorCoder;
 use Cardyo\SpiralCursorPagination\Service\ConnectionFactory;
 use Cardyo\SpiralCursorPagination\Service\CursorGenerator;
 use Cardyo\SpiralCursorPagination\Service\PaginationMetadataCalculator;
+use Cardyo\SpiralCursorPagination\Specification\Pagination\CursorPaginator;
 use Cardyo\Tests\SpiralCursorPagination\Fixtures;
+use Cycle\Database\DatabaseManager;
 use Cycle\Database\DatabaseProviderInterface;
 use Cycle\ORM\EntityManagerInterface;
 use Cycle\ORM\ORM;
@@ -62,24 +64,21 @@ class CursorPaginationProductionScenariosTest extends AbstractTestCase
         ]);
     }
 
-    public function setUp(): void
+    #[\Override]
+    protected function defineMigrations(DatabaseManager $dbal): void
     {
-        parent::setUp();
-        $this->initDatabase();
-    }
+        $schema = $dbal->database()->table('customers')->getSchema();
 
-    private function initDatabase(): void
-    {
-        $dbal = $this->getContainer()->get(DatabaseProviderInterface::class);
-
-        $schema = $dbal->database('default')->table('customers')->getSchema();
-        $schema->primary('uuid');
+        $schema->uuid('uuid');
         $schema->string('name');
         $schema->string('email');
         $schema->datetime('created_at')->nullable();
         $schema->datetime('updated_at')->nullable();
         $schema->datetime('last_activity_at')->nullable();
         $schema->integer('login_count')->nullable();
+
+        $schema->index(['uuid'])->unique();
+
         $schema->save();
     }
 
@@ -516,6 +515,19 @@ class CursorPaginationProductionScenariosTest extends AbstractTestCase
                 'Within same login_count, should be sorted by name ASC'
             );
         }
+    }
+
+    private function createPaginator(int $limit): CursorPaginator
+    {
+        return new CursorPaginator(
+            defaultLimit: $limit,
+            limitValue: new \Spiral\DataGrid\Specification\Value\RangeValue(
+                new \Spiral\DataGrid\Specification\Value\IntValue(),
+                \Spiral\DataGrid\Specification\Value\RangeValue\Boundary::including(1),
+                \Spiral\DataGrid\Specification\Value\RangeValue\Boundary::including(100),
+            ),
+            cursorCoder: new CursorCoder(),
+        );
     }
 
     private function seedRealisticCustomerData(): void

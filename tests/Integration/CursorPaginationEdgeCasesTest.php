@@ -4,18 +4,14 @@ declare(strict_types=1);
 
 namespace Cardyo\Tests\SpiralCursorPagination\Integration;
 
-use Cardyo\SpiralCursorPagination\CursorEncoder\CursorCoder;
-use Cardyo\SpiralCursorPagination\Service\ConnectionFactory;
-use Cardyo\SpiralCursorPagination\Service\CursorGenerator;
-use Cardyo\SpiralCursorPagination\Service\PaginationMetadataCalculator;
+use Cardyo\SpiralCursorPagination\Attribute\CursorPaginate;
+use Cardyo\SpiralCursorPagination\Response\Connection;
 use Cardyo\Tests\SpiralCursorPagination\Fixtures;
-use Cycle\Database\DatabaseProviderInterface;
-use Cycle\Database\Schema\AbstractTable;
+use Cycle\Database\DatabaseManager;
 use Cycle\ORM\EntityManagerInterface;
-use Cycle\ORM\ORM;
 use Cycle\ORM\Schema;
 use Cycle\ORM\SchemaInterface;
-use Cycle\ORM\Select;
+use Nyholm\Psr7\ServerRequest;
 use PHPUnit\Framework\Attributes\Test;
 use Spiral\DataGrid\GridSchema;
 use Spiral\DataGrid\Specification\Filter\Gte;
@@ -23,15 +19,16 @@ use Spiral\DataGrid\Specification\Filter\Like;
 use Spiral\DataGrid\Specification\Sorter\Sorter;
 
 /**
- * Edge cases and production scenarios for cursor pagination.
+ * Edge cases and production scenarios for cursor pagination using interceptor pattern.
  *
  * Tests cover:
  * - Empty result sets
  * - Single item results
  * - Exact page boundaries
  * - Complex filters with pagination
- * - Search with pagination
- * - Invalid/malformed cursors
+ * - Pagination stability
+ * - Requesting more items than exist
+ * - Page size of 1
  */
 class CursorPaginationEdgeCasesTest extends AbstractTestCase
 {
@@ -64,24 +61,21 @@ class CursorPaginationEdgeCasesTest extends AbstractTestCase
         ]);
     }
 
-    public function setUp(): void
+    #[\Override]
+    protected function defineMigrations(DatabaseManager $dbal): void
     {
-        parent::setUp();
-        $this->initDatabase();
-    }
+        $schema = $dbal->database()->table('customers')->getSchema();
 
-    private function initDatabase(): void
-    {
-        $dbal = $this->getContainer()->get(DatabaseProviderInterface::class);
-
-        $schema = $dbal->database('default')->table('customers')->getSchema();
-        $schema->primary('uuid');
+        $schema->uuid('uuid');
         $schema->string('name');
         $schema->string('email');
         $schema->datetime('created_at')->nullable();
         $schema->datetime('updated_at')->nullable();
         $schema->datetime('last_activity_at')->nullable();
         $schema->integer('login_count')->nullable();
+
+        $schema->index(['uuid'])->unique();
+
         $schema->save();
     }
 
@@ -92,33 +86,23 @@ class CursorPaginationEdgeCasesTest extends AbstractTestCase
     public function testPaginationWithEmptyResults(): void
     {
         // Don't seed any data
-        $select = new Select($this->getContainer()->get(ORM::class), Fixtures\Entity\Customer::class);
-        $select = $select->orderBy('login_count', 'DESC');
+        $controller = new class {
+            public function index(
+                #[CursorPaginate(
+                    entity: Fixtures\Entity\Customer::class,
+                    pageSize: 10,
+                )]
+                Connection $connection
+            ): Connection {
+                return $connection;
+            }
+        };
 
-        $gridSchema = new GridSchema();
-        $paginator = $this->createPaginator(10);
-        $gridSchema->setPaginator($paginator);
-
-        $grid = self::createGridFactory()
-            ->withInput(new \Spiral\DataGrid\Input\ArrayInput([
-                'paginate' => ['first' => 10],
-            ]))
-            ->create($select, $gridSchema);
-
-        $results = iterator_to_array($grid->getIterator());
-
-        $connectionFactory = new ConnectionFactory(
-            new CursorGenerator(),
-            new PaginationMetadataCalculator(),
-        );
-        $connection = $connectionFactory->createConnection(
-            results: $results,
-            query: $grid->getSource(),
-            paginatorState: ['first' => 10],
-            encoder: new CursorCoder(),
-        );
+        $request = new ServerRequest('GET', '/customers');
+        $connection = $this->executeController($controller, 'index', $request);
 
         // Empty results
+        $this->assertInstanceOf(Connection::class, $connection);
         $this->assertCount(0, $connection->nodes);
         $this->assertCount(0, $connection->edges);
 
@@ -137,33 +121,23 @@ class CursorPaginationEdgeCasesTest extends AbstractTestCase
     {
         $this->seedSingleCustomer();
 
-        $select = new Select($this->getContainer()->get(ORM::class), Fixtures\Entity\Customer::class);
-        $select = $select->orderBy('name', 'ASC');
+        $controller = new class {
+            public function index(
+                #[CursorPaginate(
+                    entity: Fixtures\Entity\Customer::class,
+                    pageSize: 10,
+                )]
+                Connection $connection
+            ): Connection {
+                return $connection;
+            }
+        };
 
-        $gridSchema = new GridSchema();
-        $paginator = $this->createPaginator(10);
-        $gridSchema->setPaginator($paginator);
-
-        $grid = self::createGridFactory()
-            ->withInput(new \Spiral\DataGrid\Input\ArrayInput([
-                'paginate' => ['first' => 10],
-            ]))
-            ->create($select, $gridSchema);
-
-        $results = iterator_to_array($grid->getIterator());
-
-        $connectionFactory = new ConnectionFactory(
-            new CursorGenerator(),
-            new PaginationMetadataCalculator(),
-        );
-        $connection = $connectionFactory->createConnection(
-            results: $results,
-            query: $grid->getSource(),
-            paginatorState: ['first' => 10],
-            encoder: new CursorCoder(),
-        );
+        $request = new ServerRequest('GET', '/customers?first=10');
+        $connection = $this->executeController($controller, 'index', $request);
 
         // Single item
+        $this->assertInstanceOf(Connection::class, $connection);
         $this->assertCount(1, $connection->nodes);
         $this->assertEquals('Customer 1', $connection->nodes[0]->name);
 
@@ -185,33 +159,22 @@ class CursorPaginationEdgeCasesTest extends AbstractTestCase
     {
         $this->seedExactlyThreeCustomers();
 
-        $select = new Select($this->getContainer()->get(ORM::class), Fixtures\Entity\Customer::class);
-        $select = $select->orderBy('name', 'ASC');
+        $controller = new class {
+            public function index(
+                #[CursorPaginate(
+                    entity: Fixtures\Entity\Customer::class,
+                )]
+                Connection $connection
+            ): Connection {
+                return $connection;
+            }
+        };
 
-        $gridSchema = new GridSchema();
-        $paginator = $this->createPaginator(10);
-        $gridSchema->setPaginator($paginator);
-
-        $grid = self::createGridFactory()
-            ->withInput(new \Spiral\DataGrid\Input\ArrayInput([
-                'paginate' => ['first' => 3],
-            ]))
-            ->create($select, $gridSchema);
-
-        $results = iterator_to_array($grid->getIterator());
-
-        $connectionFactory = new ConnectionFactory(
-            new CursorGenerator(),
-            new PaginationMetadataCalculator(),
-        );
-        $connection = $connectionFactory->createConnection(
-            results: $results,
-            query: $grid->getSource(),
-            paginatorState: ['first' => 3],
-            encoder: new CursorCoder(),
-        );
+        $request = new ServerRequest('GET', '/customers?first=3');
+        $connection = $this->executeController($controller, 'index', $request);
 
         // Exactly 3 items
+        $this->assertInstanceOf(Connection::class, $connection);
         $this->assertCount(3, $connection->nodes);
 
         // No more pages (we got exactly the page size, but +1 query didn't find more)
@@ -227,43 +190,32 @@ class CursorPaginationEdgeCasesTest extends AbstractTestCase
     {
         $this->seedCustomersForFiltering();
 
-        $select = new Select($this->getContainer()->get(ORM::class), Fixtures\Entity\Customer::class);
-
+        // Create GridSchema with multiple filters
         $gridSchema = new GridSchema();
-
-        // Multiple filters like a real app: search, date range, threshold
         $gridSchema->addFilter('search', new Like('name', '%Alice%'));
         $gridSchema->addFilter('active', new Gte('login_count', 5));
         $gridSchema->addSorter('activity', new Sorter('last_activity_at'));
+        $gridSchema->setPaginator($this->paginationHelper->createPaginator(2));
 
-        $paginator = $this->createPaginator(10);
-        $gridSchema->setPaginator($paginator);
+        $this->getContainer()->bindSingleton(TestComplexFilterGridSchema::class, fn() => $gridSchema);
 
-        $grid = self::createGridFactory()
-            ->withInput(new \Spiral\DataGrid\Input\ArrayInput([
-                'filter' => [
-                    'search' => true,
-                    'active' => true,
-                ],
-                'sort' => ['activity' => 'desc'],
-                'paginate' => ['first' => 2],
-            ]))
-            ->create($select, $gridSchema);
+        $controller = new class {
+            public function index(
+                #[CursorPaginate(
+                    entity: Fixtures\Entity\Customer::class,
+                    schema: TestComplexFilterGridSchema::class,
+                )]
+                Connection $connection
+            ): Connection {
+                return $connection;
+            }
+        };
 
-        $results = iterator_to_array($grid->getIterator());
-
-        $connectionFactory = new ConnectionFactory(
-            new CursorGenerator(),
-            new PaginationMetadataCalculator(),
-        );
-        $connection = $connectionFactory->createConnection(
-            results: $results,
-            query: $grid->getSource(),
-            paginatorState: ['first' => 2],
-            encoder: new CursorCoder(),
-        );
+        $request = new ServerRequest('GET', '/customers?filter[search]=1&filter[active]=1&sort[activity]=desc&first=2');
+        $connection = $this->executeController($controller, 'index', $request);
 
         // Should get filtered results
+        $this->assertInstanceOf(Connection::class, $connection);
         $this->assertCount(2, $connection->nodes);
 
         // All results should match filters (name contains Alice, login_count >= 5)
@@ -274,34 +226,17 @@ class CursorPaginationEdgeCasesTest extends AbstractTestCase
 
         // Cursors should work with filters
         $this->assertNotEmpty($connection->pageInfo->endCursor);
+        $this->assertTrue($connection->pageInfo->hasNextPage);
 
         // Navigate to next page with same filters
-        $grid2 = self::createGridFactory()
-            ->withInput(new \Spiral\DataGrid\Input\ArrayInput([
-                'filter' => [
-                    'search' => true,
-                    'active' => true,
-                ],
-                'sort' => ['activity' => 'desc'],
-                'paginate' => [
-                    'first' => 2,
-                    'after' => $connection->pageInfo->endCursor,
-                ],
-            ]))
-            ->create(clone $select, $gridSchema);
-
-        $results2 = iterator_to_array($grid2->getIterator());
-        $connection2 = $connectionFactory->createConnection(
-            results: $results2,
-            query: $grid2->getSource(),
-            paginatorState: [
-                'first' => 2,
-                'after' => $connection->pageInfo->endCursor,
-            ],
-            encoder: new CursorCoder(),
+        $request2 = new ServerRequest(
+            'GET',
+            '/customers?filter[search]=1&filter[active]=1&sort[activity]=desc&first=2&after=' . $connection->pageInfo->endCursor
         );
+        $connection2 = $this->executeController($controller, 'index', $request2);
 
         // Second page should also match filters
+        $this->assertInstanceOf(Connection::class, $connection2);
         foreach ($connection2->nodes as $node) {
             $this->assertStringContainsString('Alice', $node->name);
             $this->assertGreaterThanOrEqual(5, $node->loginCount);
@@ -316,76 +251,30 @@ class CursorPaginationEdgeCasesTest extends AbstractTestCase
     {
         $this->seedTestCustomers();
 
-        $select = new Select($this->getContainer()->get(ORM::class), Fixtures\Entity\Customer::class);
-        $select = $select->orderBy('name', 'ASC');
-
-        $gridSchema = new GridSchema();
-        $paginator = $this->createPaginator(10);
-        $gridSchema->setPaginator($paginator);
+        $controller = new class {
+            public function index(
+                #[CursorPaginate(
+                    entity: Fixtures\Entity\Customer::class,
+                )]
+                Connection $connection
+            ): Connection {
+                return $connection;
+            }
+        };
 
         // First request
-        $grid1 = self::createGridFactory()
-            ->withInput(new \Spiral\DataGrid\Input\ArrayInput([
-                'paginate' => ['first' => 3],
-            ]))
-            ->create(clone $select, $gridSchema);
-
-        $results1 = iterator_to_array($grid1->getIterator());
-
-        $connectionFactory = new ConnectionFactory(
-            new CursorGenerator(),
-            new PaginationMetadataCalculator(),
-        );
-        $connection1 = $connectionFactory->createConnection(
-            results: $results1,
-            query: $grid1->getSource(),
-            paginatorState: ['first' => 3],
-            encoder: new CursorCoder(),
-        );
+        $request1 = new ServerRequest('GET', '/customers?first=3');
+        $connection1 = $this->executeController($controller, 'index', $request1);
 
         $cursor = $connection1->pageInfo->endCursor;
 
         // Second request with same cursor (simulate browser back/forward)
-        $grid2 = self::createGridFactory()
-            ->withInput(new \Spiral\DataGrid\Input\ArrayInput([
-                'paginate' => [
-                    'first' => 3,
-                    'after' => $cursor,
-                ],
-            ]))
-            ->create(clone $select, $gridSchema);
-
-        $results2 = iterator_to_array($grid2->getIterator());
-        $connection2 = $connectionFactory->createConnection(
-            results: $results2,
-            query: $grid2->getSource(),
-            paginatorState: [
-                'first' => 3,
-                'after' => $cursor,
-            ],
-            encoder: new CursorCoder(),
-        );
+        $request2 = new ServerRequest('GET', "/customers?first=3&after={$cursor}");
+        $connection2 = $this->executeController($controller, 'index', $request2);
 
         // Third request with same cursor (should get identical results)
-        $grid3 = self::createGridFactory()
-            ->withInput(new \Spiral\DataGrid\Input\ArrayInput([
-                'paginate' => [
-                    'first' => 3,
-                    'after' => $cursor,
-                ],
-            ]))
-            ->create(clone $select, $gridSchema);
-
-        $results3 = iterator_to_array($grid3->getIterator());
-        $connection3 = $connectionFactory->createConnection(
-            results: $results3,
-            query: $grid3->getSource(),
-            paginatorState: [
-                'first' => 3,
-                'after' => $cursor,
-            ],
-            encoder: new CursorCoder(),
-        );
+        $request3 = new ServerRequest('GET', "/customers?first=3&after={$cursor}");
+        $connection3 = $this->executeController($controller, 'index', $request3);
 
         // Results should be identical
         $this->assertEquals(
@@ -402,33 +291,23 @@ class CursorPaginationEdgeCasesTest extends AbstractTestCase
     {
         $this->seedExactlyThreeCustomers();
 
-        $select = new Select($this->getContainer()->get(ORM::class), Fixtures\Entity\Customer::class);
-        $select = $select->orderBy('name', 'ASC');
+        $controller = new class {
+            public function index(
+                #[CursorPaginate(
+                    entity: Fixtures\Entity\Customer::class,
+                    maxPageSize: 100,
+                )]
+                Connection $connection
+            ): Connection {
+                return $connection;
+            }
+        };
 
-        $gridSchema = new GridSchema();
-        $paginator = $this->createPaginator(100);
-        $gridSchema->setPaginator($paginator);
-
-        $grid = self::createGridFactory()
-            ->withInput(new \Spiral\DataGrid\Input\ArrayInput([
-                'paginate' => ['first' => 100],
-            ]))
-            ->create($select, $gridSchema);
-
-        $results = iterator_to_array($grid->getIterator());
-
-        $connectionFactory = new ConnectionFactory(
-            new CursorGenerator(),
-            new PaginationMetadataCalculator(),
-        );
-        $connection = $connectionFactory->createConnection(
-            results: $results,
-            query: $grid->getSource(),
-            paginatorState: ['first' => 100],
-            encoder: new CursorCoder(),
-        );
+        $request = new ServerRequest('GET', '/customers?first=100');
+        $connection = $this->executeController($controller, 'index', $request);
 
         // Only 3 items exist
+        $this->assertInstanceOf(Connection::class, $connection);
         $this->assertCount(3, $connection->nodes);
         $this->assertFalse($connection->pageInfo->hasNextPage);
     }
@@ -441,41 +320,29 @@ class CursorPaginationEdgeCasesTest extends AbstractTestCase
     {
         $this->seedTestCustomers();
 
-        $select = new Select($this->getContainer()->get(ORM::class), Fixtures\Entity\Customer::class);
-        $select = $select->orderBy('name', 'ASC');
-
-        $gridSchema = new GridSchema();
-        $paginator = $this->createPaginator(10);
-        $gridSchema->setPaginator($paginator);
-
-        $connectionFactory = new ConnectionFactory(
-            new CursorGenerator(),
-            new PaginationMetadataCalculator(),
-        );
+        $controller = new class {
+            public function index(
+                #[CursorPaginate(
+                    entity: Fixtures\Entity\Customer::class,
+                )]
+                Connection $connection
+            ): Connection {
+                return $connection;
+            }
+        };
 
         $allItems = [];
         $cursor = null;
 
         // Paginate one item at a time
         for ($i = 0; $i < 10; $i++) {
-            $input = ['first' => 1];
+            $url = '/customers?first=1';
             if ($cursor) {
-                $input['after'] = $cursor;
+                $url .= "&after={$cursor}";
             }
 
-            $grid = self::createGridFactory()
-                ->withInput(new \Spiral\DataGrid\Input\ArrayInput([
-                    'paginate' => $input,
-                ]))
-                ->create(clone $select, $gridSchema);
-
-            $results = iterator_to_array($grid->getIterator());
-            $connection = $connectionFactory->createConnection(
-                results: $results,
-                query: $grid->getSource(),
-                paginatorState: $input,
-                encoder: new CursorCoder(),
-            );
+            $request = new ServerRequest('GET', $url);
+            $connection = $this->executeController($controller, 'index', $request);
 
             if (count($connection->nodes) === 0) {
                 break;
@@ -501,6 +368,7 @@ class CursorPaginationEdgeCasesTest extends AbstractTestCase
             name: 'Customer 1',
             email: 'customer1@example.com',
             createdAt: new \DateTimeImmutable('2024-01-01'),
+            updatedAt: null,
             lastActivityAt: new \DateTimeImmutable('2024-01-10'),
             loginCount: 10,
         );
@@ -601,3 +469,6 @@ class CursorPaginationEdgeCasesTest extends AbstractTestCase
         $em->run();
     }
 }
+
+// Dummy class for testing complex filter GridSchema
+class TestComplexFilterGridSchema extends GridSchema {}

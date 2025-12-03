@@ -1,35 +1,25 @@
 <?php
 
-use Cardyo\SpiralCursorPagination\CursorEncoder\CursorCoder;
-use Cardyo\SpiralCursorPagination\Specification\Pagination\CursorPaginator;
-use Cardyo\Tests\SpiralCursorPagination\Integration\AbstractTestCase;
+declare(strict_types=1);
+
+namespace Cardyo\Tests\SpiralCursorPagination\Integration;
+
+use Cardyo\SpiralCursorPagination\Attribute\CursorPaginate;
+use Cardyo\SpiralCursorPagination\Response\Connection;
 use Cardyo\Tests\SpiralCursorPagination\Fixtures;
-use Cycle\Database\DatabaseProviderInterface;
-use Cycle\Database\Schema\AbstractTable;
+use Cycle\Database\DatabaseManager;
 use Cycle\ORM\EntityManagerInterface;
-use Cycle\ORM\ORM;
 use Cycle\ORM\Schema;
 use Cycle\ORM\SchemaInterface;
-use Cycle\ORM\Select;
-use Spiral\DataGrid\GridSchema;
-use Spiral\DataGrid\Specification\Value\IntValue;
-use Spiral\DataGrid\Specification\Value\RangeValue;
-use Spiral\DataGrid\Specification\Value\RangeValue\Boundary;
-use PHPUnit\Framework\Attributes\DataProvider;
+use Nyholm\Psr7\ServerRequest;
+use PHPUnit\Framework\Attributes\Test;
 
+/**
+ * Test cursor pagination without an incremental identifier (UUID primary key).
+ */
 class WithoutIncrementalIdentifierTest extends AbstractTestCase
 {
-    #[Override]
-    public function setUp(): void
-    {
-        parent::setUp();
-
-        $this->defineSchema();
-
-        $this->setUpDatabase();
-    }
-
-    #[Override]
+    #[\Override]
     protected function defineSchema(): SchemaInterface
     {
         return new Schema([
@@ -59,10 +49,10 @@ class WithoutIncrementalIdentifierTest extends AbstractTestCase
         ]);
     }
 
-    private function setUpDatabase(): void
+    #[\Override]
+    protected function defineMigrations(DatabaseManager $dbal): void
     {
-        /** @var AbstractTable $schema */
-        $schema = $this->getContainer()->get(DatabaseProviderInterface::class)->database()->table('customers')->getSchema();
+        $schema = $dbal->database()->table('customers')->getSchema();
 
         $schema->uuid('uuid');
         $schema->string('name');
@@ -77,38 +67,38 @@ class WithoutIncrementalIdentifierTest extends AbstractTestCase
         $schema->save();
     }
 
-    #[DataProvider('paginationScenarioProvider')]
-    public function testDefaultPagination(array $customers, CursorPaginator $paginator, int $expectedCount): void
+    #[Test]
+    public function testDefaultPagination(): void
     {
-        $this->seedCustomers($customers);
+        $this->seedCustomers($this->buildUuidCustomers());
 
-        $select = new Select($this->getContainer()->get(ORM::class), Fixtures\Entity\Customer::class);
+        $controller = new class {
+            public function index(
+                #[CursorPaginate(
+                    entity: Fixtures\Entity\Customer::class,
+                    pageSize: 5,
+                )]
+                Connection $connection
+            ): Connection {
+                return $connection;
+            }
+        };
 
-        $gridSchema = new GridSchema();
-        $gridSchema->setPaginator($paginator);
+        $request = new ServerRequest('GET', '/customers');
+        $connection = $this->executeController($controller, 'index', $request);
 
-        $grid = self::createGridFactory()
-            ->create($select, $gridSchema);
-
-        $results = iterator_to_array($grid->getIterator());
-
-        $this->assertCount($expectedCount, $results);
-    }
-
-    public static function paginationScenarioProvider(): iterable
-    {
-        yield 'uuid primary key with default limit' => [
-            'customers' => self::buildUuidCustomers(),
-            'paginator' => self::createDefaultPaginator(limit: 5),
-            'expectedCount' => 6, // CursorLimit fetches limit+1 for hasMore detection
-        ];
+        // Should return 5 customers (pageSize limit)
+        $this->assertInstanceOf(Connection::class, $connection);
+        $this->assertCount(5, $connection->nodes);
+        $this->assertTrue($connection->pageInfo->hasNextPage);
+        $this->assertFalse($connection->pageInfo->hasPreviousPage);
     }
 
     /**
      * Creates predictable UUID customers so future test cases (incremental IDs, UUIDv7, etc.)
      * can reuse the same seeding logic with different factories.
      */
-    private static function buildUuidCustomers(int $count = 6): array
+    private function buildUuidCustomers(int $count = 6): array
     {
         $customers = [];
 
@@ -124,40 +114,14 @@ class WithoutIncrementalIdentifierTest extends AbstractTestCase
         return $customers;
     }
 
-    private static function createDefaultPaginator(int $limit): CursorPaginator
-    {
-        return new CursorPaginator(
-            defaultLimit: $limit,
-            limitValue: new RangeValue(
-                new IntValue(),
-                Boundary::including(1),
-                Boundary::including(100),
-            ),
-            cursorCoder: new CursorCoder(),
-        );
-    }
-
     private function seedCustomers(array $customers): void
     {
+        $em = $this->getContainer()->get(EntityManagerInterface::class);
+
         foreach ($customers as $customer) {
-            $this->persist($customer);
+            $em->persist($customer);
         }
 
-        $this->flush();
-    }
-
-    public function getEntityManager(): EntityManagerInterface
-    {
-        return $this->getContainer()->get(EntityManagerInterface::class);
-    }
-
-    public function persist(object $entity): void
-    {
-        $this->getEntityManager()->persist($entity);
-    }
-
-    public function flush(): void
-    {
-        $this->getEntityManager()->run();
+        $em->run();
     }
 }

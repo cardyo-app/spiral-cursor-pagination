@@ -2,6 +2,8 @@
 
 namespace Cardyo\Tests\SpiralCursorPagination\Integration;
 
+use Cardyo\SpiralCursorPagination\Interceptor\CursorPaginationInterceptor;
+use Cardyo\SpiralCursorPagination\Service\CursorPaginationHelper;
 use Cycle\Database\Config\DatabaseConfig;
 use Cycle\Database\Config\SQLite\FileConnectionConfig;
 use Cycle\Database\Config\SQLite\MemoryConnectionConfig;
@@ -15,6 +17,8 @@ use Cycle\ORM\ORM;
 use Cycle\ORM\ORMInterface;
 use Cycle\ORM\Schema;
 use Cycle\ORM\SchemaInterface;
+use Psr\Http\Message\ServerRequestInterface;
+use Spiral\Core\Core;
 use Spiral\Cycle\DataGrid\Writer\QueryWriter;
 use Spiral\DataGrid\Compiler;
 use Spiral\DataGrid\GridFactory;
@@ -24,6 +28,10 @@ use Spiral\Cycle\Bootloader as CycleBridge;
 
 abstract class AbstractTestCase extends SpiralTestCase
 {
+    protected CursorPaginationInterceptor $interceptor;
+    protected Core $core;
+    protected CursorPaginationHelper $paginationHelper;
+
     public function setUp(): void
     {
         parent::setUp();
@@ -62,9 +70,62 @@ abstract class AbstractTestCase extends SpiralTestCase
         $em = new EntityManager($orm);
         $this->getApp()->getContainer()->bind(EntityManagerInterface::class, EntityManager::class);
         $this->getApp()->getContainer()->bind(EntityManager::class, $em);
+
+        // Run migrations to create database tables
+        $this->defineMigrations($dbal);
+
+        // Initialize interceptor for production-style testing
+        $this->paginationHelper = new CursorPaginationHelper(
+            gridFactory: self::createGridFactory(),
+        );
+
+        $this->core = new Core($this->getContainer());
+    }
+
+    /**
+     * Create interceptor with custom request.
+     * Call this in your tests when you need to test pagination with specific parameters.
+     */
+    protected function createInterceptor(ServerRequestInterface $request): CursorPaginationInterceptor
+    {
+        return new CursorPaginationInterceptor(
+            paginationHelper: $this->paginationHelper,
+            orm: $this->getContainer()->get(ORM::class),
+            request: $request,
+            container: $this->getContainer(),
+        );
+    }
+
+    /**
+     * Execute a controller action through the interceptor.
+     * This simulates the production flow where the interceptor processes the request.
+     */
+    protected function executeController(object $controller, string $method, ServerRequestInterface $request, array $parameters = []): mixed
+    {
+        $interceptor = $this->createInterceptor($request);
+        return $interceptor->process($controller::class, $method, $parameters, $this->core);
     }
 
     abstract protected function defineSchema(): SchemaInterface;
+
+    /**
+     * Define database migrations (table structure).
+     *
+     * This method should use the Cycle Database schema builder to create tables.
+     *
+     * Example:
+     * ```php
+     * protected function defineMigrations(DatabaseManager $dbal): void
+     * {
+     *     $schema = $dbal->database()->table('customers')->getSchema();
+     *     $schema->uuid('uuid');
+     *     $schema->string('name');
+     *     $schema->index(['uuid'])->unique();
+     *     $schema->save();
+     * }
+     * ```
+     */
+    abstract protected function defineMigrations(DatabaseManager $dbal): void;
 
     #[\Override]
     public function defineDirectories(string $root): array

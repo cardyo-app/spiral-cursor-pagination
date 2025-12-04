@@ -88,8 +88,9 @@ class CursorPaginationEdgeCasesTest extends AbstractTestCase
     {
         // Don't seed any data
 
-        // Set up GridSchema with paginator (no sorters - interceptor will add default PK sorter)
+        // Set up GridSchema with sorter and paginator
         $gridSchema = new GridSchema();
+        $gridSchema->addSorter('uuid', new Sorter('uuid'));
         $gridSchema->setPaginator($this->paginationHelper->createPaginator(defaultLimit: 10));
         $this->getContainer()->bindSingleton(TestBasicGridSchema::class, fn() => $gridSchema);
 
@@ -101,7 +102,8 @@ class CursorPaginationEdgeCasesTest extends AbstractTestCase
             {
                 return $this->orm
                     ->getRepository(Fixtures\Entity\Customer::class)
-                    ->select();
+                    ->select()
+                    ->orderBy('uuid', 'ASC');  // Controller sets default order
             }
         };
 
@@ -128,8 +130,9 @@ class CursorPaginationEdgeCasesTest extends AbstractTestCase
     {
         $this->seedSingleCustomer();
 
-        // Set up GridSchema with paginator (no sorters - interceptor will add default PK sorter)
+        // Set up GridSchema with sorter and paginator
         $gridSchema = new GridSchema();
+        $gridSchema->addSorter('uuid', new Sorter('uuid'));
         $gridSchema->setPaginator($this->paginationHelper->createPaginator(defaultLimit: 10));
         $this->getContainer()->bindSingleton(TestBasicGridSchema::class, fn() => $gridSchema);
 
@@ -141,7 +144,7 @@ class CursorPaginationEdgeCasesTest extends AbstractTestCase
             {
                 return $this->orm
                     ->getRepository(Fixtures\Entity\Customer::class)
-                    ->select();
+                    ->select()->orderBy('uuid', 'ASC');
             }
         };
 
@@ -171,8 +174,9 @@ class CursorPaginationEdgeCasesTest extends AbstractTestCase
     {
         $this->seedExactlyThreeCustomers();
 
-        // Set up GridSchema with paginator (no sorters - interceptor will add default PK sorter)
+        // Set up GridSchema with sorter and paginator
         $gridSchema = new GridSchema();
+        $gridSchema->addSorter('uuid', new Sorter('uuid'));
         $gridSchema->setPaginator($this->paginationHelper->createPaginator());
         $this->getContainer()->bindSingleton(TestDefaultGridSchema::class, fn() => $gridSchema);
 
@@ -184,7 +188,7 @@ class CursorPaginationEdgeCasesTest extends AbstractTestCase
             {
                 return $this->orm
                     ->getRepository(Fixtures\Entity\Customer::class)
-                    ->select();
+                    ->select()->orderBy('uuid', 'ASC');
             }
         };
 
@@ -225,7 +229,7 @@ class CursorPaginationEdgeCasesTest extends AbstractTestCase
             {
                 return $this->orm
                     ->getRepository(Fixtures\Entity\Customer::class)
-                    ->select();
+                    ->select()->orderBy('uuid', 'ASC');
             }
         };
 
@@ -269,8 +273,9 @@ class CursorPaginationEdgeCasesTest extends AbstractTestCase
     {
         $this->seedTestCustomers();
 
-        // Set up GridSchema with paginator (no sorters - interceptor will add default PK sorter)
+        // Set up GridSchema with sorter and paginator
         $gridSchema = new GridSchema();
+        $gridSchema->addSorter('uuid', new Sorter('uuid'));
         $gridSchema->setPaginator($this->paginationHelper->createPaginator());
         $this->getContainer()->bindSingleton(TestDefaultGridSchema::class, fn() => $gridSchema);
 
@@ -282,7 +287,7 @@ class CursorPaginationEdgeCasesTest extends AbstractTestCase
             {
                 return $this->orm
                     ->getRepository(Fixtures\Entity\Customer::class)
-                    ->select();
+                    ->select()->orderBy('uuid', 'ASC');
             }
         };
 
@@ -315,8 +320,9 @@ class CursorPaginationEdgeCasesTest extends AbstractTestCase
     {
         $this->seedExactlyThreeCustomers();
 
-        // Set up GridSchema with large max limit (no sorters - interceptor will add default PK sorter)
+        // Set up GridSchema with large max limit
         $gridSchema = new GridSchema();
+        $gridSchema->addSorter('uuid', new Sorter('uuid'));
         $gridSchema->setPaginator($this->paginationHelper->createPaginator(maxLimit: 100));
         $this->getContainer()->bindSingleton(TestLargePageGridSchema::class, fn() => $gridSchema);
 
@@ -328,7 +334,7 @@ class CursorPaginationEdgeCasesTest extends AbstractTestCase
             {
                 return $this->orm
                     ->getRepository(Fixtures\Entity\Customer::class)
-                    ->select();
+                    ->select()->orderBy('uuid', 'ASC');
             }
         };
 
@@ -349,8 +355,9 @@ class CursorPaginationEdgeCasesTest extends AbstractTestCase
     {
         $this->seedTestCustomers();
 
-        // Set up GridSchema with paginator (no sorters - interceptor will add default PK sorter)
+        // Set up GridSchema with sorter and paginator
         $gridSchema = new GridSchema();
+        $gridSchema->addSorter('uuid', new Sorter('uuid'));
         $gridSchema->setPaginator($this->paginationHelper->createPaginator());
         $this->getContainer()->bindSingleton(TestDefaultGridSchema::class, fn() => $gridSchema);
 
@@ -362,7 +369,7 @@ class CursorPaginationEdgeCasesTest extends AbstractTestCase
             {
                 return $this->orm
                     ->getRepository(Fixtures\Entity\Customer::class)
-                    ->select();
+                    ->select()->orderBy('uuid', 'ASC');
             }
         };
 

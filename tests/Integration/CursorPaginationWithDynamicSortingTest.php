@@ -109,7 +109,7 @@ class CursorPaginationWithDynamicSortingTest extends AbstractTestCase
         };
 
         // User requests with specific sort direction at runtime
-        $request = new ServerRequest('GET', '/customers?sort[activity]=desc&paginate[first]=3');
+        $request = new ServerRequest('GET', '/customers?sort[activity]=desc&sort[uuid]=asc&paginate[first]=3');
         $connection = $this->executeController($controller, 'index', $request);
 
         // Test the actual Connection response
@@ -162,7 +162,7 @@ class CursorPaginationWithDynamicSortingTest extends AbstractTestCase
         };
 
         // First page
-        $request = new ServerRequest('GET', '/customers?sort[logins]=desc&paginate[first]=2');
+        $request = new ServerRequest('GET', '/customers?sort[logins]=desc&sort[uuid]=asc&paginate[first]=2');
         $connection = $this->executeController($controller, 'index', $request);
 
         // Test Connection has correct data
@@ -204,7 +204,7 @@ class CursorPaginationWithDynamicSortingTest extends AbstractTestCase
         };
 
         // User chooses to sort by activity
-        $request1 = new ServerRequest('GET', '/customers?sort[activity]=desc&paginate[first]=3');
+        $request1 = new ServerRequest('GET', '/customers?sort[activity]=desc&sort[uuid]=asc&paginate[first]=3');
         $connection1 = $this->executeController($controller, 'index', $request1);
 
         $this->assertInstanceOf(Connection::class, $connection1);
@@ -212,7 +212,7 @@ class CursorPaginationWithDynamicSortingTest extends AbstractTestCase
         $this->assertCount(3, $connection1->nodes);
 
         // User chooses to sort by logins
-        $request2 = new ServerRequest('GET', '/customers?sort[logins]=desc&paginate[first]=3');
+        $request2 = new ServerRequest('GET', '/customers?sort[logins]=desc&sort[uuid]=asc&paginate[first]=3');
         $connection2 = $this->executeController($controller, 'index', $request2);
 
         $this->assertInstanceOf(Connection::class, $connection2);

@@ -73,8 +73,9 @@ class WithoutIncrementalIdentifierTest extends AbstractTestCase
     {
         $this->seedCustomers($this->buildUuidCustomers());
 
-        // Set up GridSchema with paginator (no sorters - interceptor will add default PK sorter)
+        // Set up GridSchema with sorter and paginator
         $gridSchema = new \Spiral\DataGrid\GridSchema();
+        $gridSchema->addSorter('uuid', new \Spiral\DataGrid\Specification\Sorter\Sorter('uuid'));
         $gridSchema->setPaginator($this->paginationHelper->createPaginator(defaultLimit: 5));
         $this->getContainer()->bindSingleton(TestUuidGridSchema::class, fn() => $gridSchema);
 
@@ -87,7 +88,7 @@ class WithoutIncrementalIdentifierTest extends AbstractTestCase
             {
                 return $this->orm
                     ->getRepository(Fixtures\Entity\Customer::class)
-                    ->select();
+                    ->select()->orderBy('uuid', 'ASC');
             }
         };
 

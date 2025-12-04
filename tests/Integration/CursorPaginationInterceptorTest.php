@@ -48,8 +48,9 @@ final class CursorPaginationInterceptorTest extends AbstractTestCase
     {
         $this->seedTestCustomers();
 
-        // Set up minimal GridSchema with paginator (no sorters - interceptor will add default PK sorter)
+        // Set up minimal GridSchema with sorter and paginator
         $gridSchema = new GridSchema();
+        $gridSchema->addSorter('uuid', new Sorter('uuid'));
         $gridSchema->setPaginator($this->paginationHelper->createPaginator());
         $this->getContainer()->bindSingleton(TestMinimalGridSchema::class, fn() => $gridSchema);
 
@@ -61,7 +62,7 @@ final class CursorPaginationInterceptorTest extends AbstractTestCase
             {
                 return $this->orm
                     ->getRepository(Fixtures\Entity\Customer::class)
-                    ->select();
+                    ->select()->orderBy('uuid', 'ASC');
             }
         };
 
@@ -98,7 +99,7 @@ final class CursorPaginationInterceptorTest extends AbstractTestCase
             {
                 return $this->orm
                     ->getRepository(Fixtures\Entity\Customer::class)
-                    ->select();
+                    ->select()->orderBy('uuid', 'ASC');
             }
         };
 
@@ -116,8 +117,9 @@ final class CursorPaginationInterceptorTest extends AbstractTestCase
     {
         $this->seedTestCustomers();
 
-        // Set up GridSchema with paginator (no sorters - interceptor will add default PK sorter)
+        // Set up GridSchema with sorter and paginator
         $gridSchema = new GridSchema();
+        $gridSchema->addSorter('uuid', new Sorter('uuid'));
         $gridSchema->setPaginator($this->paginationHelper->createPaginator());
         $this->getContainer()->bindSingleton(TestViewMapperGridSchema::class, fn() => $gridSchema);
 
@@ -129,7 +131,7 @@ final class CursorPaginationInterceptorTest extends AbstractTestCase
             {
                 return $this->orm
                     ->getRepository(Fixtures\Entity\Customer::class)
-                    ->select();
+                    ->select()->orderBy('uuid', 'ASC');
             }
 
             public static function mapToDTO(Fixtures\Entity\Customer $customer): array
@@ -155,8 +157,9 @@ final class CursorPaginationInterceptorTest extends AbstractTestCase
     {
         $this->seedTestCustomers();
 
-        // Set up GridSchema with custom page size (no sorters - interceptor will add default PK sorter)
+        // Set up GridSchema with custom page size
         $gridSchema = new GridSchema();
+        $gridSchema->addSorter('uuid', new Sorter('uuid'));
         $gridSchema->setPaginator($this->paginationHelper->createPaginator(defaultLimit: 2, maxLimit: 50));
         $this->getContainer()->bindSingleton(TestCustomPageSizeGridSchema::class, fn() => $gridSchema);
 
@@ -168,7 +171,7 @@ final class CursorPaginationInterceptorTest extends AbstractTestCase
             {
                 return $this->orm
                     ->getRepository(Fixtures\Entity\Customer::class)
-                    ->select();
+                    ->select()->orderBy('uuid', 'ASC');
             }
         };
 
@@ -185,15 +188,21 @@ final class CursorPaginationInterceptorTest extends AbstractTestCase
     {
         $this->seedTestCustomers();
 
+        // Set up GridSchema with sorter and paginator
+        $gridSchema = new GridSchema();
+        $gridSchema->addSorter('uuid', new Sorter('uuid'));
+        $gridSchema->setPaginator($this->paginationHelper->createPaginator());
+        $this->getContainer()->bindSingleton(TestTotalCountGridSchema::class, fn() => $gridSchema);
+
         $controller = new class($this->getContainer()->get(ORM::class)) {
             public function __construct(private readonly ORM $orm) {}
 
-            #[CursorPaginate(countTotal: true)]
+            #[CursorPaginate(schema: TestTotalCountGridSchema::class, countTotal: true)]
             public function index(): \Cycle\ORM\Select
             {
                 return $this->orm
                     ->getRepository(Fixtures\Entity\Customer::class)
-                    ->select();
+                    ->select()->orderBy('uuid', 'ASC');
             }
         };
 
@@ -321,3 +330,6 @@ class TestCustomPageSizeGridSchema extends GridSchema {}
 
 // GridSchema for view mapper tests
 class TestViewMapperGridSchema extends GridSchema {}
+
+// GridSchema for total count tests
+class TestTotalCountGridSchema extends GridSchema {}

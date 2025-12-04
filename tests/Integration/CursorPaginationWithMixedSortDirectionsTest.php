@@ -112,7 +112,7 @@ class CursorPaginationWithMixedSortDirectionsTest extends AbstractTestCase
         };
 
         // First page: ORDER BY created_at DESC, login_count ASC LIMIT 2
-        $request = new ServerRequest('GET', '/customers?sort[created]=desc&sort[logins]=asc&paginate[first]=2');
+        $request = new ServerRequest('GET', '/customers?sort[created]=desc&sort[logins]=asc&sort[uuid]=asc&paginate[first]=2');
         $page1 = $this->executeController($controller, 'index', $request);
 
         // Should get 2024-01-03 customers first (newest), ordered by login_count ASC
@@ -124,7 +124,7 @@ class CursorPaginationWithMixedSortDirectionsTest extends AbstractTestCase
 
         // Second page: should continue with 2024-01-03 (login 30) then move to 2024-01-02
         $cursor = $page1->pageInfo->endCursor;
-        $request2 = new ServerRequest('GET', "/customers?sort[created]=desc&sort[logins]=asc&paginate[first]=2&paginate[after]={$cursor}");
+        $request2 = new ServerRequest('GET', "/customers?sort[created]=desc&sort[logins]=asc&sort[uuid]=asc&paginate[first]=2&paginate[after]={$cursor}");
         $page2 = $this->executeController($controller, 'index', $request2);
 
         $this->assertInstanceOf(Connection::class, $page2);
@@ -169,7 +169,7 @@ class CursorPaginationWithMixedSortDirectionsTest extends AbstractTestCase
         };
 
         // First page: ORDER BY login_count ASC, created_at DESC LIMIT 2
-        $request = new ServerRequest('GET', '/customers?sort[logins]=asc&sort[created]=desc&paginate[first]=2');
+        $request = new ServerRequest('GET', '/customers?sort[logins]=asc&sort[created]=desc&sort[uuid]=asc&paginate[first]=2');
         $page1 = $this->executeController($controller, 'index', $request);
 
         // Should get login_count=10 first, ordered by created_at DESC (newest first)
@@ -181,7 +181,7 @@ class CursorPaginationWithMixedSortDirectionsTest extends AbstractTestCase
 
         // Second page
         $cursor = $page1->pageInfo->endCursor;
-        $request2 = new ServerRequest('GET', "/customers?sort[logins]=asc&sort[created]=desc&paginate[first]=2&paginate[after]={$cursor}");
+        $request2 = new ServerRequest('GET', "/customers?sort[logins]=asc&sort[created]=desc&sort[uuid]=asc&paginate[first]=2&paginate[after]={$cursor}");
         $page2 = $this->executeController($controller, 'index', $request2);
 
         $this->assertInstanceOf(Connection::class, $page2);
@@ -218,12 +218,12 @@ class CursorPaginationWithMixedSortDirectionsTest extends AbstractTestCase
         };
 
         // Get to middle page
-        $request = new ServerRequest('GET', '/customers?sort[created]=desc&sort[logins]=asc&paginate[first]=3');
+        $request = new ServerRequest('GET', '/customers?sort[created]=desc&sort[logins]=asc&sort[uuid]=asc&paginate[first]=3');
         $middlePage = $this->executeController($controller, 'index', $request);
         $startCursor = $middlePage->pageInfo->startCursor;
 
         // Go backward
-        $request2 = new ServerRequest('GET', "/customers?sort[created]=desc&sort[logins]=asc&paginate[last]=2&paginate[before]={$startCursor}");
+        $request2 = new ServerRequest('GET', "/customers?sort[created]=desc&sort[logins]=asc&sort[uuid]=asc&paginate[last]=2&paginate[before]={$startCursor}");
         $backPage = $this->executeController($controller, 'index', $request2);
 
         // When going backward with DESC+ASC, should still maintain proper order

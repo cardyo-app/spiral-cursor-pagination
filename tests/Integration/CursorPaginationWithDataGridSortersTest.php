@@ -113,7 +113,7 @@ class CursorPaginationWithDataGridSortersTest extends AbstractTestCase
 
         $request = new ServerRequest(
             'GET',
-            "/customers?sort[activity]={$sortDirection}&paginate[first]=3"
+            "/customers?sort[activity]={$sortDirection}&sort[uuid]=asc&paginate[first]=3"
         );
 
         $connection = $this->executeController($controller, 'index', $request);
@@ -195,7 +195,7 @@ class CursorPaginationWithDataGridSortersTest extends AbstractTestCase
         };
 
         // First page
-        $request = new ServerRequest('GET', '/customers?sort[logins]=desc&paginate[first]=2');
+        $request = new ServerRequest('GET', '/customers?sort[logins]=desc&sort[uuid]=asc&paginate[first]=2');
         $connection = $this->executeController($controller, 'index', $request);
 
         // Test Connection response
@@ -239,7 +239,7 @@ class CursorPaginationWithDataGridSortersTest extends AbstractTestCase
             }
         };
 
-        $request = new ServerRequest('GET', '/customers?sort[activity]=desc&filter[minLogins]=1&paginate[first]=10');
+        $request = new ServerRequest('GET', '/customers?sort[activity]=desc&filter[minLogins]=1&sort[uuid]=asc&paginate[first]=10');
         $connection = $this->executeController($controller, 'index', $request);
 
         // Should get 4 results (customers with login_count >= 20)

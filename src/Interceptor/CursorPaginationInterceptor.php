@@ -76,15 +76,8 @@ final class CursorPaginationInterceptor implements InterceptorInterface
             return $result;
         }
 
-        // Apply cursor pagination
-        $connection = $this->createConnectionFromSelect($result, $config);
-
-        // Apply view mapper if provided
-        if ($config['view'] !== null) {
-            $connection = $connection->withMapper($config['view']);
-        }
-
-        return $connection;
+        // Apply cursor pagination (with view mapper if provided)
+        return $this->createConnectionFromSelect($result, $config);
     }
 
     /**
@@ -162,22 +155,26 @@ final class CursorPaginationInterceptor implements InterceptorInterface
             );
         }
 
-        // Ensure we have at least a default ORDER BY for stable cursor pagination
-        // If GridSchema has no sorters, add PK sorter and inject sort parameter
-        $request = $this->request;
-        if (empty($gridSchema->getSorters())) {
-            $primaryKey = $this->getPrimaryKey($select);
-            if ($primaryKey !== null) {
-                // Add PK sorter to GridSchema
-                $gridSchema->addSorter($primaryKey, new \Spiral\DataGrid\Specification\Sorter\Sorter($primaryKey));
+        // Validate cursor pagination has deterministic ordering
+        // Check if ORDER BY exists from controller OR sort parameters
+        $queryParams = $this->request->getQueryParams();
+        $hasSortParams = isset($queryParams['sort']) && !empty($queryParams['sort']);
+        $hasOrderBy = $this->hasOrderBy($select);
 
-                // Inject sort parameter into request to activate the PK sorter
-                $queryParams = $request->getQueryParams();
-                if (!isset($queryParams['sort'])) {
-                    $queryParams['sort'] = [$primaryKey => 'ASC'];
-                    $request = $request->withQueryParams($queryParams);
-                }
+        if (!$hasOrderBy && !$hasSortParams) {
+            // No ordering at all - provide helpful error message
+            $message = 'Cursor pagination requires explicit sorting for deterministic ordering. You have two options:' . "\n\n";
+            $message .= '1. Apply orderBy() in your controller:' . "\n";
+            $message .= '   return $this->select()->orderBy(\'created_at\', \'DESC\');' . "\n\n";
+            $message .= '2. Add sort parameter to request:' . "\n";
+            $message .= '   ?sort[fieldName]=asc or ?sort[fieldName]=desc';
+
+            if (!empty($gridSchema->getSorters())) {
+                $availableSorters = array_keys($gridSchema->getSorters());
+                $message .= "\n   Available sorters: " . implode(', ', $availableSorters);
             }
+
+            throw new \RuntimeException($message);
         }
 
         // Count total if requested
@@ -186,14 +183,23 @@ final class CursorPaginationInterceptor implements InterceptorInterface
             $totalCount = (clone $select)->count();
         }
 
-        // Use helper to paginate (without mapper - will be applied after)
+        // Use helper to paginate (with mapper if provided)
         return $this->paginationHelper->paginate(
             query: $select,
-            request: $request,
+            request: $this->request,
             gridSchema: $gridSchema,
-            mapper: null,
+            mapper: $config['view'],  // Apply view/mapper if configured
             totalCount: $totalCount,
         );
+    }
+
+    /**
+     * Check if Select query has ORDER BY clause.
+     */
+    private function hasOrderBy(Select $select): bool
+    {
+        $tokens = $select->getBuilder()->getQuery()->getTokens();
+        return !empty($tokens['orderBy']);
     }
 
     /**

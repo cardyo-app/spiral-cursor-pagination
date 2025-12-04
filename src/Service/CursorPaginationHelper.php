@@ -78,6 +78,7 @@ final class CursorPaginationHelper
             ->create($query, $gridSchema);
 
         // Execute query and get results
+        $compiledQuery = $grid->getSource();
         $results = iterator_to_array($grid->getIterator());
 
         // Apply mapper if provided
@@ -93,7 +94,7 @@ final class CursorPaginationHelper
 
         return $connectionFactory->createConnection(
             results: $results,
-            query: $grid->getSource(),
+            query: $compiledQuery,  // Use potentially modified query with fallback ORDER BY
             paginatorState: $paginationInput,
             encoder: $this->encoder,
             totalCount: $totalCount,

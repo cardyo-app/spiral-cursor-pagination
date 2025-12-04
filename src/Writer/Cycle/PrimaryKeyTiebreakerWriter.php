@@ -35,8 +35,9 @@ final class PrimaryKeyTiebreakerWriter implements WriterInterface
             return null;
         }
 
-        // Only apply to GridSchema (main pagination specification)
-        if (!$specification instanceof GridSchema) {
+        // Only apply to CursorPaginator specification
+        // The compiler processes individual specs, not the GridSchema as a whole
+        if (!$specification instanceof \Cardyo\SpiralCursorPagination\Specification\Pagination\CursorPaginator) {
             return null;
         }
 

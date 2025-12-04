@@ -109,7 +109,7 @@ class CursorPaginationWithManualSortingTest extends AbstractTestCase
 
         $request = new ServerRequest(
             'GET',
-            "/customers?sort[{$sortField}]={$sortDirection}&paginate[first]=3"
+            "/customers?sort[{$sortField}]={$sortDirection}&sort[uuid]=asc&paginate[first]=3"
         );
 
         $connection = $this->executeController($controller, 'index', $request);
@@ -183,7 +183,7 @@ class CursorPaginationWithManualSortingTest extends AbstractTestCase
         };
 
         // First page
-        $request = new ServerRequest('GET', '/customers?sort[logins]=desc&paginate[first]=3');
+        $request = new ServerRequest('GET', '/customers?sort[logins]=desc&sort[uuid]=asc&paginate[first]=3');
         $firstPage = $this->executeController($controller, 'index', $request);
 
         $this->assertCount(3, $firstPage->nodes);
@@ -192,7 +192,7 @@ class CursorPaginationWithManualSortingTest extends AbstractTestCase
 
         // Second page using cursor
         $afterCursor = $firstPage->pageInfo->endCursor;
-        $request2 = new ServerRequest('GET', "/customers?sort[logins]=desc&paginate[first]=2&paginate[after]={$afterCursor}");
+        $request2 = new ServerRequest('GET', "/customers?sort[logins]=desc&sort[uuid]=asc&paginate[first]=2&paginate[after]={$afterCursor}");
         $secondPage = $this->executeController($controller, 'index', $request2);
 
         $this->assertCount(2, $secondPage->nodes);
@@ -227,12 +227,12 @@ class CursorPaginationWithManualSortingTest extends AbstractTestCase
         };
 
         // Get a cursor from middle of dataset
-        $request = new ServerRequest('GET', '/customers?sort[logins]=desc&paginate[first]=3');
+        $request = new ServerRequest('GET', '/customers?sort[logins]=desc&sort[uuid]=asc&paginate[first]=3');
         $firstPage = $this->executeController($controller, 'index', $request);
         $cursor = $firstPage->pageInfo->endCursor;
 
         // Go backwards from that cursor
-        $request2 = new ServerRequest('GET', "/customers?sort[logins]=desc&paginate[last]=2&paginate[before]={$cursor}");
+        $request2 = new ServerRequest('GET', "/customers?sort[logins]=desc&sort[uuid]=asc&paginate[last]=2&paginate[before]={$cursor}");
         $backPage = $this->executeController($controller, 'index', $request2);
 
         $this->assertCount(2, $backPage->nodes);

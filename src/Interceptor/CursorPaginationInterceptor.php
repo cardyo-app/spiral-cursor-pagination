@@ -6,6 +6,7 @@ namespace Cardyo\SpiralCursorPagination\Interceptor;
 
 use Cardyo\SpiralCursorPagination\Attribute\CursorPaginate;
 use Cardyo\SpiralCursorPagination\Response\Connection;
+use Cardyo\SpiralCursorPagination\Response\ConnectionResponseInterface;
 use Cardyo\SpiralCursorPagination\Service\CursorPaginationHelper;
 use Cycle\ORM\ORMInterface;
 use Cycle\ORM\Select;
@@ -52,6 +53,7 @@ final class CursorPaginationInterceptor implements InterceptorInterface
         private readonly CursorPaginationHelper $paginationHelper,
         private readonly ServerRequestInterface $request,
         private readonly ContainerInterface $container,
+        private readonly ConnectionResponseInterface $response,
     ) {}
 
     public function intercept(CallContextInterface $context, HandlerInterface $handler): mixed
@@ -77,7 +79,10 @@ final class CursorPaginationInterceptor implements InterceptorInterface
         }
 
         // Apply cursor pagination (with view mapper if provided)
-        return $this->createConnectionFromSelect($result, $config);
+        $connection = $this->createConnectionFromSelect($result, $config);
+
+        // Wrap in response object (similar to GridInterceptor)
+        return $this->response->withConnection($connection, $config['options']);
     }
 
     /**
@@ -106,6 +111,11 @@ final class CursorPaginationInterceptor implements InterceptorInterface
 
     /**
      * Create configuration array from attribute.
+     *
+     * Follows the same resolution logic as GridInterceptor:
+     * 1. Resolve schema from container
+     * 2. Resolve view/mapper from container if it's a string class name
+     * 3. Support callable arrays like [ClassName::class, 'method']
      */
     private function makeConfig(CursorPaginate $attribute): array
     {
@@ -113,11 +123,26 @@ final class CursorPaginationInterceptor implements InterceptorInterface
             'schema' => $this->container->get($attribute->schema),
             'view' => $attribute->view,
             'countTotal' => $attribute->countTotal,
+            'options' => $attribute->options,
         ];
 
-        // Resolve view/mapper
-        if (is_string($config['view']) && $this->container->has($config['view'])) {
-            $config['view'] = $this->container->get($config['view']);
+        // Resolve view/mapper from container (matches GridInterceptor logic)
+        if (is_string($config['view'])) {
+            // If it's a class name and exists in container, resolve it
+            if ($this->container->has($config['view'])) {
+                $config['view'] = $this->container->get($config['view']);
+            }
+            // Otherwise keep as string (might be used in callable array)
+        }
+
+        // Support [ClassName::class, 'method'] format
+        if (is_array($config['view']) && count($config['view']) === 2) {
+            [$class, $method] = $config['view'];
+
+            // Resolve class from container if it's a string
+            if (is_string($class) && $this->container->has($class)) {
+                $config['view'] = [$this->container->get($class), $method];
+            }
         }
 
         return $config;

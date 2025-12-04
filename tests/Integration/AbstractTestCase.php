@@ -3,6 +3,8 @@
 namespace Cardyo\Tests\SpiralCursorPagination\Integration;
 
 use Cardyo\SpiralCursorPagination\Interceptor\CursorPaginationInterceptor;
+use Cardyo\SpiralCursorPagination\Response\ConnectionResponse;
+use Cardyo\SpiralCursorPagination\Response\ConnectionResponseInterface;
 use Cardyo\SpiralCursorPagination\Service\CursorPaginationHelper;
 use Cycle\Database\Config\DatabaseConfig;
 use Cycle\Database\Config\SQLite\FileConnectionConfig;
@@ -91,12 +93,15 @@ abstract class AbstractTestCase extends SpiralTestCase
             paginationHelper: $this->paginationHelper,
             request: $request,
             container: $this->getContainer(),
+            response: new ConnectionResponse(),
         );
     }
 
     /**
      * Execute a controller action through the interceptor.
      * This simulates the production flow where the interceptor processes the request.
+     *
+     * @return mixed For tests, unwraps ConnectionResponse to Connection for backward compatibility
      */
     protected function executeController(object $controller, string $method, ServerRequestInterface $request, array $parameters = []): mixed
     {
@@ -113,7 +118,52 @@ abstract class AbstractTestCase extends SpiralTestCase
         $handler = new CallableHandler();
 
         // Execute through interceptor
-        return $interceptor->intercept($context, $handler);
+        $result = $interceptor->intercept($context, $handler);
+
+        // For backward compatibility in tests, unwrap ConnectionResponse (PSR-7)
+        // In production, the response stays as PSR-7 ResponseInterface
+        if ($result instanceof ConnectionResponseInterface) {
+            // Read JSON from response body
+            $jsonBody = (string) $result->getBody();
+            $jsonData = json_decode($jsonBody, true, 512, JSON_THROW_ON_ERROR);
+
+            // Extract the connection data for tests
+            // ConnectionResponse wraps it as: {'data': {...}}
+            return $this->connectionFromJson($jsonData['data'] ?? []);
+        }
+
+        return $result;
+    }
+
+    /**
+     * Reconstruct Connection from JSON data (for testing).
+     */
+    private function connectionFromJson(array $data): \Cardyo\SpiralCursorPagination\Response\Connection
+    {
+        $edges = array_map(
+            fn(array $edge) => new \Cardyo\SpiralCursorPagination\Response\Edge(
+                node: (object) $edge['node'], // Convert array back to object
+                cursor: $edge['cursor']
+            ),
+            $data['edges'] ?? []
+        );
+
+        $pageInfo = new \Cardyo\SpiralCursorPagination\Response\PageInfo(
+            hasNextPage: $data['pageInfo']['hasNextPage'] ?? false,
+            hasPreviousPage: $data['pageInfo']['hasPreviousPage'] ?? false,
+            startCursor: $data['pageInfo']['startCursor'] ?? null,
+            endCursor: $data['pageInfo']['endCursor'] ?? null,
+        );
+
+        // Reconstruct nodes as objects
+        $nodes = array_map(fn($node) => (object) $node, $data['nodes'] ?? []);
+
+        return new \Cardyo\SpiralCursorPagination\Response\Connection(
+            edges: $edges,
+            nodes: $nodes,
+            pageInfo: $pageInfo,
+            totalCount: $data['totalCount'] ?? null,
+        );
     }
 
     abstract protected function defineSchema(): SchemaInterface;

@@ -52,10 +52,12 @@ final class CursorPaginate
      * @param class-string $schema GridSchema class name (REQUIRED - must have CursorPaginator configured)
      * @param callable|array|string|null $view View/mapper to transform results (similar to DataGrid's view)
      * @param bool $countTotal Whether to count total records (expensive operation)
+     * @param array<string, mixed> $options Response options (status, property, includeNodes, etc.)
      */
     public function __construct(
         public readonly string $schema,
         public readonly mixed $view = null,
         public readonly bool $countTotal = false,
+        public readonly array $options = [],
     ) {}
 }

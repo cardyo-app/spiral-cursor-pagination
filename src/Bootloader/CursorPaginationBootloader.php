@@ -5,36 +5,41 @@ declare(strict_types=1);
 namespace Cardyo\SpiralCursorPagination\Bootloader;
 
 use Cardyo\SpiralCursorPagination\Interceptor\CursorPaginationInterceptor;
-use Cardyo\SpiralCursorPagination\Service\CursorPaginationHelper;
+use Cardyo\SpiralCursorPagination\Response\ConnectionResponse;
+use Cardyo\SpiralCursorPagination\Response\ConnectionResponseInterface;
 use Spiral\Boot\Bootloader\Bootloader;
-use Spiral\Bootloader\DomainBootloader;
-use Spiral\Core\Container;
+use Spiral\Core\CoreInterface;
 
 /**
- * Bootloader for cursor pagination integration.
+ * Bootloader for cursor pagination functionality.
  *
- * Registers the CursorPaginationInterceptor and helper services.
+ * Registers:
+ * - ConnectionResponseInterface binding
+ * - CursorPaginationInterceptor
  *
- * Add to your application bootloaders:
+ * Usage in app/src/Application/Kernel.php:
  * ```php
  * protected const LOAD = [
- *     // ...
+ *     // ... other bootloaders
  *     \Cardyo\SpiralCursorPagination\Bootloader\CursorPaginationBootloader::class,
  * ];
  * ```
  */
 final class CursorPaginationBootloader extends Bootloader
 {
-    public function defineSingletons(): array
-    {
-        return [
-            CursorPaginationHelper::class => CursorPaginationHelper::class,
-        ];
-    }
+    protected const SINGLETONS = [
+        ConnectionResponseInterface::class => ConnectionResponse::class,
+    ];
 
-    public function init(Container $container, DomainBootloader $domain): void
+    protected const INTERCEPTORS = [
+        CursorPaginationInterceptor::class,
+    ];
+
+    public function init(CoreInterface $core): void
     {
-        // Register the interceptor for all HTTP requests
-        $domain->addInterceptor(CursorPaginationInterceptor::class);
+        // Register interceptor with the core
+        foreach (static::INTERCEPTORS as $interceptor) {
+            $core->addInterceptor($interceptor);
+        }
     }
 }

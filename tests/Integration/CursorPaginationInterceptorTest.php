@@ -148,8 +148,9 @@ final class CursorPaginationInterceptorTest extends AbstractTestCase
 
         $this->assertInstanceOf(Connection::class, $result);
         $this->assertCount(3, $result->nodes);
-        $this->assertIsArray($result->nodes[0]);
-        $this->assertArrayHasKey('customer_name', $result->nodes[0]);
+        // After JSON round-trip, mapped arrays become stdClass objects
+        $this->assertIsObject($result->nodes[0]);
+        $this->assertObjectHasProperty('customer_name', $result->nodes[0]);
     }
 
     #[Test]

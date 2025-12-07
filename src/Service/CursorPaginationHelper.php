@@ -79,11 +79,12 @@ final class CursorPaginationHelper
 
         // Execute query and get results
         $compiledQuery = $grid->getSource();
-        $results = iterator_to_array($grid->getIterator());
+        $originalEntities = iterator_to_array($grid->getIterator());
 
-        // Apply mapper if provided
+        // Apply mapper if provided (cursors will be generated from original entities)
+        $mappedResults = $originalEntities;
         if ($mapper !== null) {
-            $results = array_map($mapper, $results);
+            $mappedResults = array_map($mapper, $originalEntities);
         }
 
         // Create Connection response
@@ -93,11 +94,12 @@ final class CursorPaginationHelper
         );
 
         return $connectionFactory->createConnection(
-            results: $results,
+            results: $mappedResults,
             query: $compiledQuery,  // Use potentially modified query with fallback ORDER BY
             paginatorState: $paginationInput,
             encoder: $this->encoder,
             totalCount: $totalCount,
+            originalEntities: $originalEntities,  // Pass original entities for cursor generation
         );
     }
 

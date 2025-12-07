@@ -29,6 +29,7 @@ final class ConnectionFactory
      * @param array{first?: int, last?: int, after?: string, before?: string} $paginatorState State from CursorPaginator::getValue()
      * @param CursorEncoderInterface $encoder Encoder for generating cursors
      * @param int|null $totalCount Optional total count of all items
+     * @param iterable<mixed>|null $originalEntities Original entities for cursor generation (if results are already mapped)
      *
      * @psalm-suppress UndefinedClass
      */
@@ -38,8 +39,14 @@ final class ConnectionFactory
         array $paginatorState,
         CursorEncoderInterface $encoder,
         ?int $totalCount = null,
+        ?iterable $originalEntities = null,
     ): Connection {
         $results = is_array($results) ? $results : iterator_to_array($results);
+
+        // Use original entities for cursor generation if provided, otherwise use results
+        $entitiesForCursors = $originalEntities !== null
+            ? (is_array($originalEntities) ? $originalEntities : iterator_to_array($originalEntities))
+            : $results;
 
         $requestedLimit = $paginatorState['first'] ?? $paginatorState['last'] ?? 0;
         $isBackward = isset($paginatorState['last']);
@@ -54,15 +61,17 @@ final class ConnectionFactory
             // For both forward and backward, remove the last item
             // since we always order in the user-requested direction
             array_pop($results);
+            array_pop($entitiesForCursors);
         }
 
-        $edges = array_map(
-            fn($node): Edge => new Edge(
+        $edges = [];
+        foreach ($results as $index => $node) {
+            $entity = $entitiesForCursors[$index] ?? $node;
+            $edges[] = new Edge(
                 node: $node,
-                cursor: $this->cursorGenerator->generateFromQuery($node, $query, $encoder),
-            ),
-            $results,
-        );
+                cursor: $this->cursorGenerator->generateFromQuery($entity, $query, $encoder),
+            );
+        }
 
         $startCursor = $edges[0]->cursor ?? null;
         $endCursor = $edges[count($edges) - 1]->cursor ?? null;

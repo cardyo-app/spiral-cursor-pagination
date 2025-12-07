@@ -126,13 +126,8 @@ final class CursorPaginationInterceptor implements InterceptorInterface
             'options' => $attribute->options,
         ];
 
-        // Resolve view/mapper from container (matches GridInterceptor logic)
         if (is_string($config['view'])) {
-            // If it's a class name and exists in container, resolve it
-            if ($this->container->has($config['view'])) {
-                $config['view'] = $this->container->get($config['view']);
-            }
-            // Otherwise keep as string (might be used in callable array)
+            $config['view'] = $this->container->get($config['view']);
         }
 
         // Support [ClassName::class, 'method'] format

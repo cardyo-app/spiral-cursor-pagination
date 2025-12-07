@@ -69,13 +69,15 @@ final class CursorPaginationHelper
     ): Connection {
         // Extract pagination params from request
         $queryParams = $request->getQueryParams();
-        $paginationInput = $this->extractPaginationInput($queryParams);
 
         // Create grid with all filters, sorters, and pagination
         // Query params already have pagination under 'paginate' namespace
         $grid = $this->gridFactory
             ->withInput(new ArrayInput($queryParams))
             ->create($query, $gridSchema);
+
+        // Get the actual paginator state from the grid (includes default limit if not specified in request)
+        $paginatorState = $grid->getOption(\Spiral\DataGrid\GridInterface::PAGINATOR) ?? [];
 
         // Execute query and get results
         $compiledQuery = $grid->getSource();
@@ -96,7 +98,7 @@ final class CursorPaginationHelper
         return $connectionFactory->createConnection(
             results: $mappedResults,
             query: $compiledQuery,  // Use potentially modified query with fallback ORDER BY
-            paginatorState: $paginationInput,
+            paginatorState: $paginatorState,  // Use paginator state from grid (includes defaults)
             encoder: $this->encoder,
             totalCount: $totalCount,
             originalEntities: $originalEntities,  // Pass original entities for cursor generation

@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Cardyo\Tests\SpiralCursorPagination\Integration;
 
 use Cardyo\SpiralCursorPagination\Attribute\CursorPaginate;
-use Cardyo\SpiralCursorPagination\Response\ConnectionResponseInterface;
 use Cardyo\Tests\SpiralCursorPagination\Fixtures;
 use Cycle\Database\DatabaseManager;
 use Cycle\ORM\EntityManagerInterface;
@@ -92,11 +91,10 @@ final class ConnectionResponseTest extends AbstractTestCase
         $handler = new \Spiral\Interceptors\Handler\CallableHandler();
         $result = $interceptor->intercept($context, $handler);
 
-        // Verify it returns ConnectionResponseInterface (which is PSR-7 ResponseInterface)
-        $this->assertInstanceOf(ConnectionResponseInterface::class, $result);
+        // Verify it returns PSR-7 ResponseInterface
         $this->assertInstanceOf(\Psr\Http\Message\ResponseInterface::class, $result);
 
-        // Read JSON body and verify structure
+        // Read JSON body and verify JSON:API structure
         $jsonBody = (string) $result->getBody();
         $json = json_decode($jsonBody, true, 512, JSON_THROW_ON_ERROR);
 
@@ -106,31 +104,30 @@ final class ConnectionResponseTest extends AbstractTestCase
         // Verify Content-Type header
         $this->assertEquals('application/json', $result->getHeaderLine('Content-Type'));
 
+        // Verify JSON:API structure
         $this->assertArrayHasKey('data', $json);
-        $data = $json['data'];
+        $this->assertArrayHasKey('meta', $json);
 
-        // Verify edges structure
-        $this->assertArrayHasKey('edges', $data);
-        $this->assertCount(3, $data['edges']);
-        $this->assertArrayHasKey('cursor', $data['edges'][0]);
-        $this->assertArrayHasKey('node', $data['edges'][0]);
+        // Verify data array (items)
+        $this->assertCount(3, $json['data']);
 
-        // Verify pageInfo structure
-        $this->assertArrayHasKey('pageInfo', $data);
-        $this->assertArrayHasKey('hasNextPage', $data['pageInfo']);
-        $this->assertArrayHasKey('hasPreviousPage', $data['pageInfo']);
-        $this->assertArrayHasKey('startCursor', $data['pageInfo']);
-        $this->assertArrayHasKey('endCursor', $data['pageInfo']);
-        $this->assertTrue($data['pageInfo']['hasNextPage']);
-        $this->assertFalse($data['pageInfo']['hasPreviousPage']);
+        // Verify meta.page structure (JSON:API Cursor Pagination Profile)
+        $this->assertArrayHasKey('page', $json['meta']);
+        $page = $json['meta']['page'];
 
-        // Verify nodes array included by default
-        $this->assertArrayHasKey('nodes', $data);
-        $this->assertCount(3, $data['nodes']);
+        // Verify cursors (from/to per JSON:API spec)
+        $this->assertArrayHasKey('from', $page);
+        $this->assertArrayHasKey('to', $page);
+        $this->assertIsString($page['from']);
+        $this->assertIsString($page['to']);
 
-        // Verify totalCount included
-        $this->assertArrayHasKey('totalCount', $data);
-        $this->assertEquals(5, $data['totalCount']);
+        // Verify hasMore flag
+        $this->assertArrayHasKey('hasMore', $page);
+        $this->assertTrue($page['hasMore']);
+
+        // Verify total count
+        $this->assertArrayHasKey('total', $page);
+        $this->assertEquals(5, $page['total']);
     }
 
     #[Test]
@@ -243,7 +240,7 @@ final class ConnectionResponseTest extends AbstractTestCase
 
             #[CursorPaginate(
                 schema: TestCustomOptionsGridSchema::class,
-                options: ['status' => 201, 'property' => 'results', 'includeNodes' => false]
+                options: ['status' => 201, 'headers' => ['X-Custom' => 'test-value']]
             )]
             public function index(): \Cycle\ORM\Select
             {
@@ -268,14 +265,15 @@ final class ConnectionResponseTest extends AbstractTestCase
         $jsonBody = (string) $result->getBody();
         $json = json_decode($jsonBody, true, 512, JSON_THROW_ON_ERROR);
 
-        // Verify custom options applied
-        $this->assertEquals(201, $result->getStatusCode()); // HTTP status code
-        $this->assertArrayHasKey('results', $json); // Custom property name
-        $this->assertArrayNotHasKey('data', $json);
+        // Verify custom status code
+        $this->assertEquals(201, $result->getStatusCode());
 
-        // Verify nodes excluded
-        $this->assertArrayNotHasKey('nodes', $json['results']);
-        $this->assertArrayHasKey('edges', $json['results']);
+        // Verify custom header
+        $this->assertEquals('test-value', $result->getHeaderLine('X-Custom'));
+
+        // Verify JSON:API structure is still intact
+        $this->assertArrayHasKey('data', $json);
+        $this->assertArrayHasKey('meta', $json);
     }
 
     private function seedTestCustomers(): void

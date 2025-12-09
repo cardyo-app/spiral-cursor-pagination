@@ -3,8 +3,7 @@
 namespace Cardyo\Tests\SpiralCursorPagination\Integration;
 
 use Cardyo\SpiralCursorPagination\Interceptor\CursorPaginationInterceptor;
-use Cardyo\SpiralCursorPagination\Response\ConnectionResponse;
-use Cardyo\SpiralCursorPagination\Response\ConnectionResponseInterface;
+use Cardyo\SpiralCursorPagination\Response\JsonConnectionResponse;
 use Cardyo\SpiralCursorPagination\Service\CursorPaginationHelper;
 use Cycle\Database\Config\DatabaseConfig;
 use Cycle\Database\Config\SQLite\FileConnectionConfig;
@@ -93,7 +92,7 @@ abstract class AbstractTestCase extends SpiralTestCase
             paginationHelper: $this->paginationHelper,
             request: $request,
             container: $this->getContainer(),
-            response: new ConnectionResponse(),
+            response: new JsonConnectionResponse(),
         );
     }
 
@@ -120,49 +119,95 @@ abstract class AbstractTestCase extends SpiralTestCase
         // Execute through interceptor
         $result = $interceptor->intercept($context, $handler);
 
-        // For backward compatibility in tests, unwrap ConnectionResponse (PSR-7)
+        // For backward compatibility in tests, unwrap PSR-7 response to Connection
         // In production, the response stays as PSR-7 ResponseInterface
-        if ($result instanceof ConnectionResponseInterface) {
-            // Read JSON from response body
-            $jsonBody = (string) $result->getBody();
-            $jsonData = json_decode($jsonBody, true, 512, JSON_THROW_ON_ERROR);
+        if ($result instanceof \Psr\Http\Message\ResponseInterface) {
+            // Check if this is a JSON response with connection data
+            $contentType = $result->getHeaderLine('Content-Type');
+            if (str_contains($contentType, 'application/json')) {
+                // Read JSON from response body
+                $jsonBody = (string) $result->getBody();
+                $jsonData = json_decode($jsonBody, true, 512, JSON_THROW_ON_ERROR);
 
-            // Extract the connection data for tests
-            // ConnectionResponse wraps it as: {'data': {...}}
-            return $this->connectionFromJson($jsonData['data'] ?? []);
+                // Extract the connection data for tests (JSON:API structure)
+                if (isset($jsonData['data']) && is_array($jsonData['data'])) {
+                    return $this->connectionFromJson($jsonData);
+                }
+            }
         }
 
         return $result;
     }
 
     /**
-     * Reconstruct Connection from JSON data (for testing).
+     * Reconstruct Connection from JSON:API structure (for testing).
+     *
+     * JSON:API Cursor Pagination Profile structure:
+     * {
+     *   "data": [...items...],
+     *   "meta": {
+     *     "page": {
+     *       "from": "...",      // Start cursor
+     *       "to": "...",        // End cursor
+     *       "hasMore": true,
+     *       "hasPrevious": true,
+     *       "total": 100
+     *     }
+     *   }
+     * }
      */
-    private function connectionFromJson(array $data): \Cardyo\SpiralCursorPagination\Response\Connection
+    private function connectionFromJson(array $jsonData): \Cardyo\SpiralCursorPagination\Response\Connection
     {
-        $edges = array_map(
-            fn(array $edge) => new \Cardyo\SpiralCursorPagination\Response\Edge(
-                node: (object) $edge['node'], // Convert array back to object
-                cursor: $edge['cursor']
-            ),
-            $data['edges'] ?? []
-        );
+        $nodes = $jsonData['data'] ?? [];
+        $page = $jsonData['meta']['page'] ?? [];
 
+        // Extract cursor and pagination info per JSON:API spec
+        $startCursor = $page['from'] ?? null;
+        $endCursor = $page['to'] ?? null;
+        $hasMore = $page['hasMore'] ?? false;
+        $hasPrevious = $page['hasPrevious'] ?? false;
+        $totalCount = $page['total'] ?? null;
+
+        // Build PageInfo
         $pageInfo = new \Cardyo\SpiralCursorPagination\Response\PageInfo(
-            hasNextPage: $data['pageInfo']['hasNextPage'] ?? false,
-            hasPreviousPage: $data['pageInfo']['hasPreviousPage'] ?? false,
-            startCursor: $data['pageInfo']['startCursor'] ?? null,
-            endCursor: $data['pageInfo']['endCursor'] ?? null,
+            hasNextPage: $hasMore,
+            hasPreviousPage: $hasPrevious,
+            startCursor: $startCursor,
+            endCursor: $endCursor,
         );
 
-        // Reconstruct nodes as objects
-        $nodes = array_map(fn($node) => (object) $node, $data['nodes'] ?? []);
+        // Build edges from nodes
+        // Use start cursor for first node, end cursor for last node
+        $edges = [];
+        foreach ($nodes as $index => $node) {
+            if ($index === 0) {
+                $cursor = $startCursor;
+            } elseif ($index === count($nodes) - 1) {
+                $cursor = $endCursor;
+            } else {
+                // Middle nodes - use a placeholder (tests don't usually need these)
+                $cursor = $endCursor ?? $startCursor;
+            }
+
+            if ($cursor === null) {
+                // Fallback if we somehow don't have any cursors
+                $cursor = base64_encode('test-cursor');
+            }
+
+            $edges[] = new \Cardyo\SpiralCursorPagination\Response\Edge(
+                node: (object) $node,
+                cursor: $cursor
+            );
+        }
+
+        // Convert nodes to objects
+        $nodes = array_map(fn($node) => (object) $node, $nodes);
 
         return new \Cardyo\SpiralCursorPagination\Response\Connection(
             edges: $edges,
             nodes: $nodes,
             pageInfo: $pageInfo,
-            totalCount: $data['totalCount'] ?? null,
+            totalCount: $totalCount,
         );
     }
 

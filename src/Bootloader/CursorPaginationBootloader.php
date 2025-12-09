@@ -5,7 +5,7 @@ declare(strict_types=1);
 namespace Cardyo\SpiralCursorPagination\Bootloader;
 
 use Cardyo\SpiralCursorPagination\Interceptor\CursorPaginationInterceptor;
-use Cardyo\SpiralCursorPagination\Response\ConnectionResponse;
+use Cardyo\SpiralCursorPagination\Response\JsonConnectionResponse;
 use Cardyo\SpiralCursorPagination\Response\ConnectionResponseInterface;
 use Spiral\Boot\Bootloader\Bootloader;
 use Spiral\Core\CoreInterface;
@@ -28,7 +28,7 @@ use Spiral\Core\CoreInterface;
 final class CursorPaginationBootloader extends Bootloader
 {
     protected const SINGLETONS = [
-        ConnectionResponseInterface::class => ConnectionResponse::class,
+        ConnectionResponseInterface::class => JsonConnectionResponse::class,
     ];
 
     protected const INTERCEPTORS = [

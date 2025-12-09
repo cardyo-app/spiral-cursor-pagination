@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Cardyo\SpiralCursorPagination\CursorEncoder;
 
+use Cardyo\SpiralCursorPagination\Cursor\CursorDataInterface;
+
 interface CursorEncoderInterface
 {
-    public function encodeCursor(mixed $cursor): string;
+    public function encodeCursor(CursorDataInterface $cursor): string;
 }
